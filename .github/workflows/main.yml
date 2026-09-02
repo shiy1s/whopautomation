@@ -1,0 +1,37 @@
+name: Video Processing
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: "Public URL of the official campaign video"
+        required: true
+        type: string
+
+jobs:
+  process-video:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download video
+        run: |
+          curl -L "${{ inputs.video_url }}" -o source.mp4
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Check video
+        run: |
+          ffprobe source.mp4
+
+      - name: Create test clip
+        run: |
+          ffmpeg -y -i source.mp4 -t 15 -c:v libx264 -c:a aac clip.mp4
+
+      - name: Upload clip
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-clip
+          path: clip.mp4
