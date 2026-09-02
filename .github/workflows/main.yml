@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       video_url:
-        description: "Public URL of the official campaign video"
+        description: "Google Drive URL of the official campaign video"
         required: true
         type: string
 
@@ -15,7 +15,8 @@ jobs:
     steps:
       - name: Download video
         run: |
-          curl -L "${{ inputs.video_url }}" -o source.mp4
+          pip install -q gdown
+          gdown --fuzzy "${{ inputs.video_url }}" -O source.mp4
 
       - name: Install FFmpeg
         run: |
