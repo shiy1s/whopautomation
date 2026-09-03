@@ -25,23 +25,110 @@ jobs:
 
       - name: Install Gemini SDK
         run: |
-          pip install -q google-genai
+          pip install -q google-genai pydantic
+
+      - name: Check source video
+        run: |
+          ffprobe -v error \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            source.mp4
 
       - name: Analyze video with Gemini
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
+
           cat > analyze_video.py <<'PY'
           import os
           import json
           import time
+          from typing import List
+          from pydantic import BaseModel, Field
           from google import genai
+          from google.genai import types
+
+
+          # ---------------------------------------------------------
+          # DATA STRUCTURE
+          # ---------------------------------------------------------
+
+          class ClipCandidate(BaseModel):
+              start: str = Field(
+                  description="Start timestamp HH:MM:SS"
+              )
+              end: str = Field(
+                  description="End timestamp HH:MM:SS"
+              )
+              title: str = Field(
+                  description="Short professional clip title"
+              )
+              hook: str = Field(
+                  description="Short attention-grabbing hook"
+              )
+              reason: str = Field(
+                  description="Why this moment has strong retention potential"
+              )
+              score: int = Field(
+                  description="Overall clip quality score from 1 to 100"
+              )
+
+
+          class ClipAnalysis(BaseModel):
+              clips: List[ClipCandidate]
+
+
+          # ---------------------------------------------------------
+          # HELPERS
+          # ---------------------------------------------------------
+
+          def timestamp_to_seconds(timestamp: str) -> float:
+              parts = timestamp.strip().split(":")
+
+              if len(parts) != 3:
+                  raise ValueError(
+                      f"Invalid timestamp format: {timestamp}"
+                  )
+
+              hours = int(parts[0])
+              minutes = int(parts[1])
+              seconds = float(parts[2])
+
+              return hours * 3600 + minutes * 60 + seconds
+
+
+          def seconds_to_timestamp(seconds: float) -> str:
+              seconds = max(0, round(seconds))
+
+              hours = seconds // 3600
+              minutes = (seconds % 3600) // 60
+              secs = seconds % 60
+
+              return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+          def clips_overlap(a, b, minimum_gap=2):
+              a_start = timestamp_to_seconds(a["start"])
+              a_end = timestamp_to_seconds(a["end"])
+
+              b_start = timestamp_to_seconds(b["start"])
+              b_end = timestamp_to_seconds(b["end"])
+
+              return not (
+                  a_end + minimum_gap <= b_start
+                  or b_end + minimum_gap <= a_start
+              )
+
+
+          # ---------------------------------------------------------
+          # GEMINI
+          # ---------------------------------------------------------
 
           client = genai.Client(
               api_key=os.environ["GEMINI_API_KEY"]
           )
 
-          print("Uploading video to Gemini...")
+          print("Uploading official campaign video to Gemini...")
 
           video = client.files.upload(
               file="source.mp4"
@@ -49,93 +136,438 @@ jobs:
 
           print(f"Uploaded: {video.name}")
 
-          print("Waiting for Gemini to process the video...")
+          print("Waiting for Gemini video processing...")
 
           while True:
-              video = client.files.get(name=video.name)
 
-              state = getattr(video.state, "name", str(video.state))
+              video = client.files.get(
+                  name=video.name
+              )
+
+              state = getattr(
+                  video.state,
+                  "name",
+                  str(video.state)
+              )
+
               print(f"Video state: {state}")
 
               if state == "ACTIVE":
                   break
 
               if state == "FAILED":
-                  raise RuntimeError("Gemini failed to process the video.")
+                  raise RuntimeError(
+                      "Gemini failed to process the official video."
+                  )
 
               time.sleep(10)
 
-          prompt = """
-          Analyze this Call of Duty RICOCHET campaign video.
 
-          Find the strongest moments for creating viral vertical social-media clips.
+          # ---------------------------------------------------------
+          # DETERMINE SOURCE DURATION
+          # ---------------------------------------------------------
 
-          IMPORTANT:
-          - Only use moments that actually exist in this video.
-          - Do not invent events.
-          - Look for strong hooks, surprising moments, important statements,
-            emotional reactions, action, reveals, or moments likely to retain
-            viewers.
-          - Each clip must be at least 10 seconds.
-          - Prefer clips between 15 and 45 seconds.
-          - Avoid unnecessary dead time.
-          - Give precise start and end timestamps.
+          import subprocess
 
-          Return ONLY valid JSON in exactly this format:
+          duration_output = subprocess.check_output(
+              [
+                  "ffprobe",
+                  "-v",
+                  "error",
+                  "-show_entries",
+                  "format=duration",
+                  "-of",
+                  "default=noprint_wrappers=1:nokey=1",
+                  "source.mp4"
+              ]
+          ).decode().strip()
 
-          {
-            "clips": [
-              {
-                "start": "00:00:00",
-                "end": "00:00:00",
-                "title": "short title",
-                "reason": "why this moment is strong",
-                "hook": "short hook for the clip"
-              }
-            ]
-          }
+          duration = float(duration_output)
 
-          Return the 5 strongest clip candidates, ranked from strongest to weakest.
+          print(
+              f"Source video duration: {duration:.2f} seconds"
+          )
+
+
+          # ---------------------------------------------------------
+          # PROFESSIONAL CLIP SELECTION PROMPT
+          # ---------------------------------------------------------
+
+          prompt = f"""
+          You are a professional short-form video editor.
+
+          Analyze the COMPLETE official Call of Duty RICOCHET
+          Enforcement campaign video.
+
+          SOURCE VIDEO DURATION:
+          {duration:.2f} seconds
+
+          IMPORTANT CAMPAIGN RULE:
+
+          ONLY use footage that exists inside this uploaded video.
+
+          Do NOT invent events, dialogue, actions, people, locations,
+          timestamps, or statements.
+
+          The final clips will be used for TikTok, Instagram Reels,
+          and YouTube Shorts.
+
+          ------------------------------------------------------------
+          CLIP SELECTION OBJECTIVE
+          ------------------------------------------------------------
+
+          Find the strongest moments that can become professional,
+          high-retention short-form clips.
+
+          Prioritize:
+
+          1. Strong opening hook
+          2. Immediate visual interest
+          3. Important or surprising information
+          4. Legal/enforcement moments
+          5. Strong emotional or dramatic moments
+          6. Clear narrative progression
+          7. Moments that make viewers want to continue watching
+          8. Moments understandable without excessive context
+          9. Natural ending/payoff
+          10. Clean usable audio
+
+          ------------------------------------------------------------
+          LENGTH REQUIREMENTS
+          ------------------------------------------------------------
+
+          Every candidate MUST:
+
+          - Be at least 10 seconds
+          - Prefer 15-45 seconds
+          - Start at a meaningful point
+          - End at a meaningful point
+          - Avoid unnecessary dead time
+          - Stay completely inside the source video
+
+          ------------------------------------------------------------
+          DISTINCT CLIP REQUIREMENT
+          ------------------------------------------------------------
+
+          THIS IS VERY IMPORTANT.
+
+          Do NOT return multiple clips covering the same event.
+
+          Clips must represent genuinely different moments.
+
+          Avoid:
+
+          Clip A: 00:00:38-00:01:03
+          Clip B: 00:00:44-00:01:03
+
+          That would be considered the SAME moment.
+
+          Prefer clearly separated moments with at least
+          2 seconds between clips.
+
+          If fewer distinct moments exist, return fewer clips.
+          NEVER create artificial variations of the same moment.
+
+          ------------------------------------------------------------
+          CAMPAIGN CONTENT
+          ------------------------------------------------------------
+
+          Pay special attention to moments involving:
+
+          - Call of Duty RICOCHET
+          - Cheat providers
+          - Legal enforcement
+          - Cease and desist
+          - Legal notices
+          - Activision representatives
+          - Delivery/service of legal documents
+          - Reactions
+          - Strong statements
+          - Important visual reveals
+
+          The final editing system will later add the required
+          campaign text and official logo.
+
+          DO NOT add campaign text into the video analysis.
+
+          ------------------------------------------------------------
+          SELECTION STRATEGY
+          ------------------------------------------------------------
+
+          First identify up to 8 strong candidate moments.
+
+          Then rank them by overall quality.
+
+          Return the strongest DISTINCT moments only.
+
+          Prefer 3-5 excellent distinct clips rather than
+          5 repetitive clips.
+
+          Each clip receives a score from 1-100.
+
+          Score based on:
+
+          - Hook strength
+          - Retention potential
+          - Visual interest
+          - Narrative completeness
+          - Emotional impact
+          - Campaign relevance
+          - Audio clarity
+          - Independence from other selected clips
+
+          ------------------------------------------------------------
+          TIMESTAMP ACCURACY
+          ------------------------------------------------------------
+
+          Timestamps must be precise.
+
+          Format:
+
+          HH:MM:SS
+
+          Do NOT exceed the source video duration.
+
+          Do NOT use timestamps that you have not actually observed.
+
+          ------------------------------------------------------------
+          OUTPUT
+          ------------------------------------------------------------
+
+          Return ONLY structured JSON matching the requested schema.
           """
 
-          print("Asking Gemini to identify the best moments...")
+          print("Asking Gemini for professional clip candidates...")
 
           response = client.models.generate_content(
               model="gemini-3-flash-preview",
               contents=[
                   video,
                   prompt
-              ]
+              ],
+              config=types.GenerateContentConfig(
+                  response_mime_type="application/json",
+                  response_schema=ClipAnalysis,
+              ),
           )
 
-          text = response.text.strip()
+          print("Gemini analysis received.")
 
-          print("Gemini response:")
-          print(text)
+          analysis = ClipAnalysis.model_validate_json(
+              response.text
+          )
 
-          # Remove Markdown code fences if Gemini adds them
-          if text.startswith("```"):
-              lines = text.splitlines()
-              lines = lines[1:]
-              if lines and lines[-1].strip() == "```":
-                  lines = lines[:-1]
-              text = "\n".join(lines).strip()
+          # ---------------------------------------------------------
+          # PROGRAMMATIC VALIDATION
+          # ---------------------------------------------------------
 
-          data = json.loads(text)
+          valid_candidates = []
 
-          with open("clips.json", "w") as f:
-              json.dump(data, f, indent=2)
+          for clip in analysis.clips:
 
-          print("Saved AI clip recommendations to clips.json")
+              try:
+                  start = timestamp_to_seconds(
+                      clip.start
+                  )
+
+                  end = timestamp_to_seconds(
+                      clip.end
+                  )
+
+              except Exception as error:
+                  print(
+                      f"Rejected invalid timestamp: {error}"
+                  )
+                  continue
+
+              length = end - start
+
+              if start < 0:
+                  print("Rejected: negative start")
+                  continue
+
+              if end > duration:
+                  print(
+                      "Rejected: clip extends beyond source video"
+                  )
+                  continue
+
+              if end <= start:
+                  print("Rejected: invalid duration")
+                  continue
+
+              if length < 10:
+                  print(
+                      f"Rejected: clip too short ({length:.1f}s)"
+                  )
+                  continue
+
+              if length > 60:
+                  print(
+                      f"Rejected: clip too long ({length:.1f}s)"
+                  )
+                  continue
+
+              clip_data = clip.model_dump()
+
+              clip_data["start"] = seconds_to_timestamp(
+                  start
+              )
+
+              clip_data["end"] = seconds_to_timestamp(
+                  end
+              )
+
+              clip_data["_start_seconds"] = start
+              clip_data["_end_seconds"] = end
+
+              valid_candidates.append(
+                  clip_data
+              )
+
+
+          # ---------------------------------------------------------
+          # SORT BY QUALITY
+          # ---------------------------------------------------------
+
+          valid_candidates.sort(
+              key=lambda x: x["score"],
+              reverse=True
+          )
+
+
+          # ---------------------------------------------------------
+          # REMOVE OVERLAPPING / REPETITIVE CLIPS
+          # ---------------------------------------------------------
+
+          selected = []
+
+          for candidate in valid_candidates:
+
+              is_duplicate = False
+
+              for existing in selected:
+
+                  if clips_overlap(
+                      candidate,
+                      existing,
+                      minimum_gap=2
+                  ):
+                      is_duplicate = True
+                      print(
+                          "Rejected overlapping candidate:"
+                          f" {candidate['start']}-"
+                          f"{candidate['end']}"
+                      )
+                      break
+
+              if not is_duplicate:
+                  selected.append(candidate)
+
+              if len(selected) >= 5:
+                  break
+
+
+          # ---------------------------------------------------------
+          # CLEAN OUTPUT
+          # ---------------------------------------------------------
+
+          final_clips = []
+
+          for rank, clip in enumerate(
+              selected,
+              start=1
+          ):
+
+              final_clips.append(
+                  {
+                      "rank": rank,
+                      "start": clip["start"],
+                      "end": clip["end"],
+                      "title": clip["title"],
+                      "hook": clip["hook"],
+                      "reason": clip["reason"],
+                      "score": clip["score"]
+                  }
+              )
+
+
+          result = {
+              "source_duration_seconds": duration,
+              "clips": final_clips
+          }
+
+
+          # ---------------------------------------------------------
+          # SAFETY CHECK
+          # ---------------------------------------------------------
+
+          if len(final_clips) == 0:
+              raise RuntimeError(
+                  "No valid distinct clips were found."
+              )
+
+
+          # ---------------------------------------------------------
+          # SAVE
+          # ---------------------------------------------------------
+
+          with open(
+              "clips.json",
+              "w",
+              encoding="utf-8"
+          ) as file:
+
+              json.dump(
+                  result,
+                  file,
+                  indent=2,
+                  ensure_ascii=False
+              )
+
+
+          print("")
+          print("=" * 60)
+          print("FINAL AI CLIP SELECTION")
+          print("=" * 60)
+
+          for clip in final_clips:
+
+              print(
+                  f"#{clip['rank']} "
+                  f"{clip['start']} -> {clip['end']} "
+                  f"| Score: {clip['score']}"
+              )
+
+              print(
+                  f"Title: {clip['title']}"
+              )
+
+              print(
+                  f"Hook: {clip['hook']}"
+              )
+
+              print("")
+
+
+          print(
+              f"Selected {len(final_clips)} "
+              "distinct professional clips."
+          )
+
+          print(
+              "Saved clips.json"
+          )
+
           PY
 
           python analyze_video.py
 
-      - name: Show AI clip recommendations
+      - name: Show final AI clip recommendations
         run: |
-          echo "=============================="
-          echo "AI GENERATED CLIP MOMENTS"
-          echo "=============================="
+          echo "=============================================="
+          echo "FINAL AI CLIP RECOMMENDATIONS"
+          echo "=============================================="
           cat clips.json
 
       - name: Save AI analysis
