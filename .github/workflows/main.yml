@@ -119,12 +119,18 @@ jobs:
           campaign_text='Real footage of a Call of Duty cheat provider being served a legal notice'
           with open('campaign_text.txt','w',encoding='utf-8') as f: f.write(campaign_text)
 
+          def to_seconds(ts):
+              h,m,s=ts.split(':')
+              return int(h)*3600+int(m)*60+float(s)
+
           for clip in data['clips']:
               rank=clip['rank']; start=clip['start']; end=clip['end']; out=f'output/clip_{rank:02d}.mp4'
-              duration = max(1, int(round(float(end.split(':')[-1]) - float(start.split(':')[-1]))))
-              print(f'Rendering clip {rank}: {start} -> {end}')
+              duration=to_seconds(end)-to_seconds(start)
+              if duration <= 0:
+                  raise RuntimeError(f'Invalid clip duration for clip {rank}: {start} -> {end}')
+              print(f'Rendering clip {rank}: {start} -> {end} ({duration:.2f}s)')
               fc=(
-                'color=c=black:s=1080x1920:r=30[bg];'
+                f'color=c=black:s=1080x1920:r=30:d={duration:.3f}[bg];'
                 '[0:v]scale=1080:608:force_original_aspect_ratio=decrease,'
                 'pad=1080:608:(ow-iw)/2:(oh-ih)/2:black,setsar=1[vid];'
                 '[bg][vid]overlay=0:656[base];'
@@ -136,10 +142,12 @@ jobs:
               )
               subprocess.run([
                 'ffmpeg','-hide_banner','-loglevel','warning','-y',
-                '-ss',start,'-to',end,'-i','source.mp4','-i',logo,
-                '-filter_complex',fc,'-map','[outv]','-map','0:a?','-r','30',
+                '-ss',start,'-t',f'{duration:.3f}','-i','source.mp4',
+                '-loop','1','-i',logo,
+                '-filter_complex',fc,'-map','[outv]','-map','0:a?',
+                '-t',f'{duration:.3f}','-r','30',
                 '-c:v','libx264','-preset','veryfast','-crf','22','-threads','2',
-                '-c:a','aac','-b:a','128k','-movflags','+faststart',out
+                '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',out
               ],check=True)
               print(f'Created {out}')
           PY
