@@ -82,8 +82,35 @@ jobs:
           Do NOT return multiple clips covering the same event. Select fewer clips rather than repetitive clips. Prioritize legal enforcement, cease and desist, cheat provider, legal notice, strong statements, reactions, reveals, visually interesting moments, and strong narrative moments.
           Return the strongest 2-5 DISTINCT moments. Score each from 1-100. Timestamps must be precise HH:MM:SS.'''
 
-          response=client.models.generate_content(model='gemini-3-flash-preview',contents=[video,prompt],config=types.GenerateContentConfig(response_mime_type='application/json',response_schema=ClipAnalysis))
-          analysis=ClipAnalysis.model_validate_json(response.text)
+          # Gemini can temporarily return 503/UNAVAILABLE during periods of high demand.
+          # Retry with exponential backoff before failing the workflow.
+          analysis = None
+          last_error = None
+          for attempt in range(1, 5):
+              try:
+                  print(f'Gemini analysis attempt {attempt}/4...')
+                  response=client.models.generate_content(
+                      model='gemini-3-flash-preview',
+                      contents=[video,prompt],
+                      config=types.GenerateContentConfig(
+                          response_mime_type='application/json',
+                          response_schema=ClipAnalysis
+                      )
+                  )
+                  analysis=ClipAnalysis.model_validate_json(response.text)
+                  print('Gemini analysis succeeded.')
+                  break
+              except Exception as exc:
+                  last_error=exc
+                  print(f'Gemini analysis attempt {attempt} failed: {exc}')
+                  if attempt < 4:
+                      delay=10 * (2 ** (attempt - 1))
+                      print(f'Waiting {delay}s before retry...')
+                      time.sleep(delay)
+
+          if analysis is None:
+              raise RuntimeError(f'Gemini analysis failed after 4 attempts: {last_error}')
+
           candidates=[]
           for c in analysis.clips:
               a,b=sec(c.start),sec(c.end); length=b-a
