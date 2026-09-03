@@ -1,5 +1,4 @@
-
-name: Video Processing
+name: AI Video Clipping
 
 on:
   workflow_dispatch:
@@ -10,11 +9,11 @@ on:
         type: string
 
 jobs:
-  process-video:
+  analyze-video:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download video
+      - name: Download official video
         run: |
           pip install -q gdown
           gdown "${{ inputs.video_url }}" -O source.mp4
@@ -24,16 +23,123 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Check video
+      - name: Install Gemini SDK
         run: |
-          ffprobe source.mp4
+          pip install -q google-genai
 
-      - name: Create test clip
+      - name: Analyze video with Gemini
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          ffmpeg -y -i source.mp4 -t 15 -c:v libx264 -c:a aac clip.mp4
+          cat > analyze_video.py <<'PY'
+          import os
+          import json
+          import time
+          from google import genai
 
-      - name: Upload clip
+          client = genai.Client(
+              api_key=os.environ["GEMINI_API_KEY"]
+          )
+
+          print("Uploading video to Gemini...")
+
+          video = client.files.upload(
+              file="source.mp4"
+          )
+
+          print(f"Uploaded: {video.name}")
+
+          print("Waiting for Gemini to process the video...")
+
+          while True:
+              video = client.files.get(name=video.name)
+
+              state = getattr(video.state, "name", str(video.state))
+              print(f"Video state: {state}")
+
+              if state == "ACTIVE":
+                  break
+
+              if state == "FAILED":
+                  raise RuntimeError("Gemini failed to process the video.")
+
+              time.sleep(10)
+
+          prompt = """
+          Analyze this Call of Duty RICOCHET campaign video.
+
+          Find the strongest moments for creating viral vertical social-media clips.
+
+          IMPORTANT:
+          - Only use moments that actually exist in this video.
+          - Do not invent events.
+          - Look for strong hooks, surprising moments, important statements,
+            emotional reactions, action, reveals, or moments likely to retain
+            viewers.
+          - Each clip must be at least 10 seconds.
+          - Prefer clips between 15 and 45 seconds.
+          - Avoid unnecessary dead time.
+          - Give precise start and end timestamps.
+
+          Return ONLY valid JSON in exactly this format:
+
+          {
+            "clips": [
+              {
+                "start": "00:00:00",
+                "end": "00:00:00",
+                "title": "short title",
+                "reason": "why this moment is strong",
+                "hook": "short hook for the clip"
+              }
+            ]
+          }
+
+          Return the 5 strongest clip candidates, ranked from strongest to weakest.
+          """
+
+          print("Asking Gemini to identify the best moments...")
+
+          response = client.models.generate_content(
+              model="gemini-3-flash-preview",
+              contents=[
+                  video,
+                  prompt
+              ]
+          )
+
+          text = response.text.strip()
+
+          print("Gemini response:")
+          print(text)
+
+          # Remove Markdown code fences if Gemini adds them
+          if text.startswith("```"):
+              lines = text.splitlines()
+              lines = lines[1:]
+              if lines and lines[-1].strip() == "```":
+                  lines = lines[:-1]
+              text = "\n".join(lines).strip()
+
+          data = json.loads(text)
+
+          with open("clips.json", "w") as f:
+              json.dump(data, f, indent=2)
+
+          print("Saved AI clip recommendations to clips.json")
+          PY
+
+          python analyze_video.py
+
+      - name: Show AI clip recommendations
+        run: |
+          echo "=============================="
+          echo "AI GENERATED CLIP MOMENTS"
+          echo "=============================="
+          cat clips.json
+
+      - name: Save AI analysis
         uses: actions/upload-artifact@v4
         with:
-          name: generated-clip
-          path: clip.mp4
+          name: ai-clip-analysis
+          path: clips.json
