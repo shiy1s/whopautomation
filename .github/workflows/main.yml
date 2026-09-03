@@ -116,7 +116,8 @@ jobs:
           with open('clips.json',encoding='utf-8') as f: data=json.load(f)
           logo='Call_of_Duty_Wordmark_Stacked_CMYK_White.png'
           font='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
-          campaign_text='Real footage of a Call of Duty cheat provider being served a legal notice'
+          # Keep the headline short enough to fit safely and place it BELOW the logo.
+          campaign_text='Real footage of a Call of Duty\ncheat provider being served a legal notice'
           with open('campaign_text.txt','w',encoding='utf-8') as f: f.write(campaign_text)
 
           def to_seconds(ts):
@@ -138,7 +139,8 @@ jobs:
                 '[base][logo]overlay=(W-w)/2:174[branded];'
                 '[branded]drawtext=fontfile='+font+':textfile=campaign_text.txt:'
                 'fontcolor=white:fontsize=40:line_spacing=10:'
-                'text_align=center:x=(w-text_w)/2:y=70:box=0[outv]'
+                'text_align=center:x=(w-text_w)/2:y=330:'
+                'shadowcolor=black@0.8:shadowx=2:shadowy=2:fix_bounds=1[outv]'
               )
               subprocess.run([
                 'ffmpeg','-hide_banner','-loglevel','warning','-y',
