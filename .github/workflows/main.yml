@@ -32,28 +32,18 @@ jobs:
 
       - name: Check source video
         run: |
-          ffprobe -v error \
-            -show_entries format=duration \
-            -show_entries stream=width,height \
-            -of default=noprint_wrappers=1 \
-            source.mp4
+          ffprobe -v error -show_entries format=duration -show_entries stream=width,height -of default=noprint_wrappers=1 source.mp4
 
       - name: Analyze video and select clips
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-
           cat > analyze_video.py <<'PY'
-          import os
-          import json
-          import time
-          import subprocess
+          import os, json, time, subprocess
           from typing import List
-
           from pydantic import BaseModel, Field
           from google import genai
           from google.genai import types
-
 
           class ClipCandidate(BaseModel):
               start: str = Field(description="Start timestamp HH:MM:SS")
@@ -63,359 +53,101 @@ jobs:
               reason: str
               score: int
 
-
           class ClipAnalysis(BaseModel):
               clips: List[ClipCandidate]
 
+          def sec(t):
+              h,m,s=t.split(':'); return int(h)*3600+int(m)*60+float(s)
+          def stamp(x):
+              x=int(round(x)); return f'{x//3600:02d}:{(x%3600)//60:02d}:{x%60:02d}'
+          def overlap(a,b,gap=2):
+              return not (a['end_sec']+gap<=b['start_sec'] or b['end_sec']+gap<=a['start_sec'])
 
-          def ts_seconds(ts):
-              h, m, s = ts.split(":")
-              return int(h) * 3600 + int(m) * 60 + float(s)
-
-
-          def ts(seconds):
-              seconds = int(round(seconds))
-              h = seconds // 3600
-              m = (seconds % 3600) // 60
-              s = seconds % 60
-              return f"{h:02d}:{m:02d}:{s:02d}"
-
-
-          def overlaps(a, b, gap=2):
-              return not (
-                  a["end_sec"] + gap <= b["start_sec"]
-                  or b["end_sec"] + gap <= a["start_sec"]
-              )
-
-
-          duration = float(
-              subprocess.check_output(
-                  [
-                      "ffprobe",
-                      "-v",
-                      "error",
-                      "-show_entries",
-                      "format=duration",
-                      "-of",
-                      "default=noprint_wrappers=1:nokey=1",
-                      "source.mp4"
-                  ]
-              ).decode().strip()
-          )
-
-          print(f"Source duration: {duration:.2f}s")
-
-          client = genai.Client(
-              api_key=os.environ["GEMINI_API_KEY"]
-          )
-
-          print("Uploading source video to Gemini...")
-
-          video = client.files.upload(
-              file="source.mp4"
-          )
-
-          print(f"Gemini file: {video.name}")
-
+          duration=float(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1','source.mp4']).decode().strip())
+          print(f'Source duration: {duration:.2f}s')
+          client=genai.Client(api_key=os.environ['GEMINI_API_KEY'])
+          video=client.files.upload(file='source.mp4')
           while True:
-              video = client.files.get(name=video.name)
-
-              state = getattr(
-                  video.state,
-                  "name",
-                  str(video.state)
-              )
-
-              print(f"Gemini video state: {state}")
-
-              if state == "ACTIVE":
-                  break
-
-              if state == "FAILED":
-                  raise RuntimeError(
-                      "Gemini failed to process the video."
-                  )
-
+              video=client.files.get(name=video.name)
+              state=getattr(video.state,'name',str(video.state))
+              print(f'Gemini video state: {state}')
+              if state=='ACTIVE': break
+              if state=='FAILED': raise RuntimeError('Gemini failed to process the video.')
               time.sleep(10)
 
-          prompt = f"""
-          You are a professional short-form video editor.
+          prompt=f'''You are a professional short-form video editor. Analyze the complete official Call of Duty RICOCHET Enforcement campaign video. Source duration: {duration:.2f} seconds.
+          ONLY select footage that actually exists in this video. Find the strongest DISTINCT moments for TikTok, Instagram Reels, and YouTube Shorts.
+          Every selected clip must be at least 10 seconds, preferably 15-45 seconds, have a strong hook, meaningful content, a natural ending, and no dead time. Keep it inside the source.
+          Do NOT return multiple clips covering the same event. Select fewer clips rather than repetitive clips. Prioritize legal enforcement, cease and desist, cheat provider, legal notice, strong statements, reactions, reveals, visually interesting moments, and strong narrative moments.
+          Return the strongest 2-5 DISTINCT moments. Score each from 1-100. Timestamps must be precise HH:MM:SS.'''
 
-          Analyze the complete official Call of Duty RICOCHET
-          Enforcement campaign video.
-
-          Source duration: {duration:.2f} seconds.
-
-          ONLY select footage that actually exists in this video.
-
-          Find the strongest DISTINCT moments for:
-          - TikTok
-          - Instagram Reels
-          - YouTube Shorts
-
-          Every selected clip must:
-          - be at least 10 seconds
-          - preferably be 15-45 seconds
-          - have a strong hook
-          - have meaningful content
-          - have a natural ending
-          - avoid dead time
-          - remain completely inside the source video
-
-          VERY IMPORTANT:
-
-          Do not return multiple clips covering the same event.
-
-          For example, these would be duplicates:
-
-          00:00:38-00:01:03
-          00:00:44-00:01:03
-
-          Select fewer clips rather than repetitive clips.
-
-          Prioritize:
-          - legal enforcement
-          - cease and desist
-          - cheat provider
-          - legal notice
-          - strong statements
-          - reactions
-          - important reveals
-          - visually interesting moments
-          - strong narrative moments
-
-          Give each clip a score from 1-100.
-
-          Return the strongest 2-5 DISTINCT moments.
-
-          Timestamps must be precise and formatted HH:MM:SS.
-          """
-
-          response = client.models.generate_content(
-              model="gemini-3-flash-preview",
-              contents=[
-                  video,
-                  prompt
-              ],
-              config=types.GenerateContentConfig(
-                  response_mime_type="application/json",
-                  response_schema=ClipAnalysis
-              )
-          )
-
-          analysis = ClipAnalysis.model_validate_json(
-              response.text
-          )
-
-          candidates = []
-
-          for clip in analysis.clips:
-
-              start = ts_seconds(clip.start)
-              end = ts_seconds(clip.end)
-
-              length = end - start
-
-              if start < 0:
-                  continue
-
-              if end > duration:
-                  continue
-
-              if end <= start:
-                  continue
-
-              if length < 10:
-                  continue
-
-              if length > 60:
-                  continue
-
-              candidates.append({
-                  "start": ts(start),
-                  "end": ts(end),
-                  "start_sec": start,
-                  "end_sec": end,
-                  "title": clip.title,
-                  "hook": clip.hook,
-                  "reason": clip.reason,
-                  "score": clip.score
-              })
-
-          candidates.sort(
-              key=lambda x: x["score"],
-              reverse=True
-          )
-
-          selected = []
-
-          for candidate in candidates:
-
-              duplicate = False
-
-              for existing in selected:
-                  if overlaps(candidate, existing):
-                      duplicate = True
-                      break
-
-              if not duplicate:
-                  selected.append(candidate)
-
-              if len(selected) == 5:
-                  break
-
-          if not selected:
-              raise RuntimeError(
-                  "No valid clips were selected."
-              )
-
-          final = []
-
-          for i, clip in enumerate(selected, 1):
-              final.append({
-                  "rank": i,
-                  "start": clip["start"],
-                  "end": clip["end"],
-                  "title": clip["title"],
-                  "hook": clip["hook"],
-                  "reason": clip["reason"],
-                  "score": clip["score"]
-              })
-
-          with open(
-              "clips.json",
-              "w",
-              encoding="utf-8"
-          ) as f:
-              json.dump(
-                  {
-                      "source_duration_seconds": duration,
-                      "clips": final
-                  },
-                  f,
-                  indent=2,
-                  ensure_ascii=False
-              )
-
-          print(json.dumps(
-              final,
-              indent=2,
-              ensure_ascii=False
-          ))
+          response=client.models.generate_content(model='gemini-3-flash-preview',contents=[video,prompt],config=types.GenerateContentConfig(response_mime_type='application/json',response_schema=ClipAnalysis))
+          analysis=ClipAnalysis.model_validate_json(response.text)
+          candidates=[]
+          for c in analysis.clips:
+              a,b=sec(c.start),sec(c.end); length=b-a
+              if a<0 or b>duration or b<=a or length<10 or length>60: continue
+              candidates.append({'start':stamp(a),'end':stamp(b),'start_sec':a,'end_sec':b,'title':c.title,'hook':c.hook,'reason':c.reason,'score':c.score})
+          candidates.sort(key=lambda x:x['score'],reverse=True)
+          selected=[]
+          for c in candidates:
+              if not any(overlap(c,e) for e in selected): selected.append(c)
+              if len(selected)==5: break
+          if not selected: raise RuntimeError('No valid clips were selected.')
+          final=[{'rank':i+1,'start':c['start'],'end':c['end'],'title':c['title'],'hook':c['hook'],'reason':c['reason'],'score':c['score']} for i,c in enumerate(selected)]
+          with open('clips.json','w',encoding='utf-8') as f: json.dump({'source_duration_seconds':duration,'clips':final},f,indent=2,ensure_ascii=False)
+          print(json.dumps(final,indent=2,ensure_ascii=False))
           PY
-
           python analyze_video.py
 
       - name: Verify official logo
         run: |
-          test -f "Call_of_Duty_Wordmark_Stacked_CMYK_White.png" || {
-            echo "ERROR: Official Call of Duty logo was not found."
-            exit 1
-          }
-
+          test -f "Call_of_Duty_Wordmark_Stacked_CMYK_White.png" || { echo "ERROR: Official Call of Duty logo was not found."; exit 1; }
           echo "Official logo verified."
 
-      - name: Create professional vertical clips
+      - name: Create professional 9:16 letterbox clips
         run: |
-
           mkdir -p output
-
           python - <<'PY'
-          import json
-          import subprocess
-          import os
-
-          with open("clips.json", "r", encoding="utf-8") as f:
-              data = json.load(f)
-
-          logo = "Call_of_Duty_Wordmark_Stacked_CMYK_White.png"
-
-          for clip in data["clips"]:
-
-              rank = clip["rank"]
-              start = clip["start"]
-              end = clip["end"]
-
-              output = f"output/clip_{rank:02d}.mp4"
-
-              print(
-                  f"Rendering clip {rank}: "
-                  f"{start} -> {end}"
+          import json, subprocess, os
+          with open('clips.json',encoding='utf-8') as f: data=json.load(f)
+          logo='Call_of_Duty_Wordmark_Stacked_CMYK_White.png'
+          font='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+          campaign_text='Real footage of a Call of Duty cheat provider being served a legal notice'
+          with open('campaign_text.txt','w',encoding='utf-8') as f: f.write(campaign_text)
+          for clip in data['clips']:
+              rank=clip['rank']; start=clip['start']; end=clip['end']; out=f'output/clip_{rank:02d}.mp4'
+              print(f'Rendering clip {rank}: {start} -> {end}')
+              # 1080x1920 portrait canvas. The original horizontal video is fitted into the
+              # center at 1080x608 (16:9) without cropping or stretching. Black space above
+              # and below is intentional and reserved for campaign copy/branding.
+              fc=(
+                'color=c=black:s=1080x1920:r=30[bg];'
+                '[0:v]scale=1080:608:force_original_aspect_ratio=decrease,'
+                'pad=1080:608:(ow-iw)/2:(oh-ih)/2:black,setsar=1[vid];'
+                '[bg][vid]overlay=0:656[base];'
+                '[1:v]scale=260:-1[logo];'
+                '[base][logo]overlay=(W-w)/2:174[branded];'
+                '[branded]drawtext=fontfile='+font+':textfile=campaign_text.txt:'
+                'fontcolor=white:fontsize=40:line_spacing=10:'
+                'text_align=center:x=(w-text_w)/2:y=70:box=0[outv]'
               )
-
-              filter_complex = (
-                  "[0:v]"
-                  "scale=1080:1920:"
-                  "force_original_aspect_ratio=increase,"
-                  "crop=1080:1920,"
-                  "setsar=1"
-                  "[video];"
-                  "[1:v]"
-                  "scale=300:-1"
-                  "[logo];"
-                  "[video][logo]"
-                  "overlay="
-                  "W-w-45:"
-                  "45"
-                  "[outv]"
-              )
-
-              subprocess.run(
-                  [
-                      "ffmpeg",
-                      "-y",
-                      "-ss",
-                      start,
-                      "-to",
-                      end,
-                      "-i",
-                      "source.mp4",
-                      "-i",
-                      logo,
-                      "-filter_complex",
-                      filter_complex,
-                      "-map",
-                      "[outv]",
-                      "-map",
-                      "0:a?",
-                      "-c:v",
-                      "libx264",
-                      "-preset",
-                      "medium",
-                      "-crf",
-                      "18",
-                      "-c:a",
-                      "aac",
-                      "-b:a",
-                      "192k",
-                      "-movflags",
-                      "+faststart",
-                      output
-                  ],
-                  check=True
-              )
-
-              print(f"Created {output}")
-
+              subprocess.run([
+                'ffmpeg','-y','-ss',start,'-to',end,'-i','source.mp4','-i',logo,
+                '-filter_complex',fc,'-map','[outv]','-map','0:a?','-r','30',
+                '-c:v','libx264','-preset','medium','-crf','18','-c:a','aac','-b:a','192k',
+                '-movflags','+faststart',out
+              ],check=True)
           PY
 
       - name: Validate generated clips
         run: |
-
+          test -n "$(find output -name '*.mp4' -print -quit)" || { echo "ERROR: No clips generated."; exit 1; }
           for file in output/*.mp4; do
-
             echo "===================================="
             echo "Checking $file"
             echo "===================================="
-
-            ffprobe -v error \
-              -show_entries \
-              format=duration \
-              -show_entries \
-              stream=width,height,codec_name \
-              -of default=noprint_wrappers=1 \
-              "$file"
-
+            ffprobe -v error -show_entries format=duration -show_entries stream=width,height,codec_name -of default=noprint_wrappers=1 "$file"
           done
 
       - name: Upload generated clips
