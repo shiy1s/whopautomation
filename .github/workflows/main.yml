@@ -11,6 +11,7 @@ on:
 jobs:
   create-clips:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -106,7 +107,9 @@ jobs:
           echo "Official logo verified."
 
       - name: Create professional 9:16 letterbox clips
+        timeout-minutes: 20
         run: |
+          set -euo pipefail
           mkdir -p output
           python - <<'PY'
           import json, subprocess, os
@@ -115,12 +118,11 @@ jobs:
           font='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
           campaign_text='Real footage of a Call of Duty cheat provider being served a legal notice'
           with open('campaign_text.txt','w',encoding='utf-8') as f: f.write(campaign_text)
+
           for clip in data['clips']:
               rank=clip['rank']; start=clip['start']; end=clip['end']; out=f'output/clip_{rank:02d}.mp4'
+              duration = max(1, int(round(float(end.split(':')[-1]) - float(start.split(':')[-1]))))
               print(f'Rendering clip {rank}: {start} -> {end}')
-              # 1080x1920 portrait canvas. The original horizontal video is fitted into the
-              # center at 1080x608 (16:9) without cropping or stretching. Black space above
-              # and below is intentional and reserved for campaign copy/branding.
               fc=(
                 'color=c=black:s=1080x1920:r=30[bg];'
                 '[0:v]scale=1080:608:force_original_aspect_ratio=decrease,'
@@ -133,15 +135,18 @@ jobs:
                 'text_align=center:x=(w-text_w)/2:y=70:box=0[outv]'
               )
               subprocess.run([
-                'ffmpeg','-y','-ss',start,'-to',end,'-i','source.mp4','-i',logo,
+                'ffmpeg','-hide_banner','-loglevel','warning','-y',
+                '-ss',start,'-to',end,'-i','source.mp4','-i',logo,
                 '-filter_complex',fc,'-map','[outv]','-map','0:a?','-r','30',
-                '-c:v','libx264','-preset','medium','-crf','18','-c:a','aac','-b:a','192k',
-                '-movflags','+faststart',out
+                '-c:v','libx264','-preset','veryfast','-crf','22','-threads','2',
+                '-c:a','aac','-b:a','128k','-movflags','+faststart',out
               ],check=True)
+              print(f'Created {out}')
           PY
 
       - name: Validate generated clips
         run: |
+          set -e
           test -n "$(find output -name '*.mp4' -print -quit)" || { echo "ERROR: No clips generated."; exit 1; }
           for file in output/*.mp4; do
             echo "===================================="
