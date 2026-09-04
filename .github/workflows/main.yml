@@ -115,11 +115,11 @@ jobs:
           Return the requested structured data with HH:MM:SS.mmm timestamps.'''
 
           analysis=None; last_error=None
-          for model in ['gemini-3-flash-preview','gemini-2.5-flash','gemini-2.5-flash-lite']:
+          for model in ['gemini-3.7-flash','gemini-3.6-flash','gemini-3.5-flash-lite']:
               for attempt in range(1,4):
                   try:
                       print(f'Analysis {model} attempt {attempt}/3')
-                      r=client.models.generate_content(model=model,contents=[video,prompt],config=types.GenerateContentConfig(response_mime_type='application/json',response_schema=ClipAnalysis,temperature=0.25))
+                      r=client.models.generate_content(model=model,contents=[video,prompt],config=types.GenerateContentConfig(response_mime_type='application/json',response_schema=ClipAnalysis))
                       analysis=ClipAnalysis.model_validate_json(r.text); break
                   except Exception as e:
                       last_error=e; print('Gemini error:',e)
