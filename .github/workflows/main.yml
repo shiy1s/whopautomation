@@ -66,6 +66,7 @@ jobs:
               start: str
               end: str
               purpose: str
+              has_burned_in_captions: bool
           class Caption(BaseModel):
               start: str
               end: str
@@ -107,7 +108,9 @@ jobs:
 
           HARD EDIT RULES: source order must remain chronological; each segment 2.5-20s normally and never over 45s; total 12-55s, preferably 20-45s; remove dead air and repetition; never invent dialogue/events/timestamps; never create a misleading causal or simultaneous impression; different packages need different core moments. Score each package 1-100 for hook, clarity, pacing, payoff, uniqueness, campaign relevance and replay/share potential.
 
-          CAPTIONS: transcribe only actual spoken dialogue. Use absolute source timestamps. Keep lines short (2-8 words, about 28 characters when practical). Do not invent or paraphrase.
+          CAPTION DUPLICATION RULE — VERY IMPORTANT: Before deciding on generated captions, visually inspect the actual selected source segments for captions/subtitles that are already burned into the video. This includes large dialogue subtitles, speaker captions, auto-generated subtitles, and styled captions. Ignore tiny timestamps, watermarks, logos, signs and ordinary scene text. Set has_burned_in_captions=true for a segment if readable dialogue captions/subtitles are already present anywhere in that segment. If captions are present, they must be preserved and the automation must NOT add a second caption layer. Be conservative: if you can clearly see existing dialogue subtitles, mark true.
+
+          CAPTIONS: If a selected segment has no burned-in dialogue captions, transcribe only actual spoken dialogue for that segment using absolute source timestamps. Keep lines short (2-8 words, about 28 characters when practical). Do not invent or paraphrase. The renderer will automatically skip generated captions for segments marked as already captioned.
 
           Return the requested structured data with HH:MM:SS.mmm timestamps.'''
 
@@ -140,7 +143,7 @@ jobs:
                   for s in c.segments:
                       a,b=sec(s.start),sec(s.end)
                       if not (0<=a<b<=duration and 2.5<=b-a<=45): raise ValueError()
-                      segs.append({'start':stamp(a),'end':stamp(b),'start_sec':a,'end_sec':b,'purpose':s.purpose})
+                      segs.append({'start':stamp(a),'end':stamp(b),'start_sec':a,'end_sec':b,'purpose':s.purpose,'has_burned_in_captions':bool(s.has_burned_in_captions)})
                   if not 1<=len(segs)<=4: continue
                   if any(segs[i]['start_sec']>=segs[i+1]['start_sec'] for i in range(len(segs)-1)): continue
                   total=sum(x['end_sec']-x['start_sec'] for x in segs)
@@ -170,9 +173,10 @@ jobs:
 
           clips=[]
           for i,c in enumerate(selected,1):
-              clips.append({'rank':i,'segments':[{'start':s['start'],'end':s['end'],'purpose':s['purpose']} for s in c['segments']],'duration_seconds':c['duration_seconds'],'title':c['title'],'hook':c['hook'],'reason':c['reason'],'score':c['score']})
+              clips.append({'rank':i,'segments':[{'start':s['start'],'end':s['end'],'purpose':s['purpose'],'has_burned_in_captions':s['has_burned_in_captions']} for s in c['segments']],'duration_seconds':c['duration_seconds'],'title':c['title'],'hook':c['hook'],'reason':c['reason'],'score':c['score']})
           with open('clips.json','w',encoding='utf-8') as f: json.dump({'source_duration_seconds':duration,'top_moments':moments[:15],'captions':captions,'clips':clips},f,indent=2,ensure_ascii=False)
           print(f'Found {len(moments)} moments, selected {len(clips)} clips, {len(captions)} caption lines')
+          for c in clips: print('Clip',c['rank'],'segments captioned:',[s['has_burned_in_captions'] for s in c['segments']])
           PY
           python analyze_video.py
 
@@ -215,8 +219,6 @@ jobs:
           for clip in data['clips']:
               idx=clip['rank']; segs=clip['segments']; total=sum(sec(s['end'])-sec(s['start']) for s in segs)
               assembled=f'work/clip_{idx:02d}_assembled.mp4'
-
-              # PASS 1: cut/concatenate only. This is deliberately isolated from branding.
               n=len(segs); g=[f'[0:v]split={n}'+''.join(f'[v{i}]' for i in range(n))]
               if audio: g += [f'[0:a]asplit={n}'+''.join(f'[a{i}]' for i in range(n))]
               for i,s in enumerate(segs):
@@ -232,10 +234,15 @@ jobs:
               cmd+=['-movflags','+faststart',assembled]
               run(cmd,f'Assemble clip {idx}')
 
-              # Convert absolute source caption times into edited timeline times.
               rows=[]; cursor=0.0
               for s in segs:
                   sa,sb=sec(s['start']),sec(s['end'])
+                  # If the source segment already contains readable dialogue captions,
+                  # do not generate another caption layer for that segment.
+                  if s.get('has_burned_in_captions',False):
+                      print(f'Clip {idx}: skipping generated captions for captioned source segment {s["start"]}-{s["end"]}')
+                      cursor+=sb-sa
+                      continue
                   for cap in data.get('captions',[]):
                       a=max(sa,cap['start_sec']); b=min(sb,cap['end_sec'])
                       if b>a and b-a>=0.12: rows.append((cursor+a-sa,cursor+b-sa,wrap(cap['text'])))
@@ -246,13 +253,11 @@ jobs:
                   if clean and r[2]==clean[-1][2] and r[0]<=clean[-1][1]+0.05: clean[-1]=(clean[-1][0],max(clean[-1][1],r[1]),r[2])
                   else: clean.append(r)
 
-              # PASS 2: vertical composition + branding + captions. No libass/ASS dependency.
               parts=['[0:v]split=2[bg][fg]', '[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=18:2,eq=brightness=-0.35:saturation=0.70[bg0]', f'color=c=black@0.35:s=1080x1920:r=30:d={total:.3f}[shade]', '[bg0][shade]overlay=0:0[bg1]', '[fg]scale=1080:608:force_original_aspect_ratio=decrease,pad=1080:608:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30[fg0]', '[bg1][fg0]overlay=0:656[base]', '[1:v]scale=220:-1[logo]', '[base][logo]overlay=(W-w)/2:115[branded]', '[branded]drawtext=fontfile='+font+':textfile=campaign_text.txt:fontcolor=white:fontsize=34:line_spacing=10:text_align=center:x=(w-text_w)/2:y=320:shadowcolor=black@0.85:shadowx=2:shadowy=2:fix_bounds=1[v0]']
               cur='[v0]'
               for j,(a,b,text) in enumerate(clean,1):
-                  path=os.path.abspath(f'caption_files/clip_{idx:02d}_{j:03d}.txt')
+                  path=os.path.abspath(f'caption_files/clip_{idx:02d}_{j:03d}.txt').replace('\\','/')
                   with open(path,'w',encoding='utf-8') as f: f.write(text)
-                  path=path.replace('\\','/')
                   nxt=f'[vc{j}]'
                   parts.append(cur+f"drawtext=fontfile={font}:textfile={path}:fontcolor=white:fontsize=42:borderw=3:bordercolor=black@0.95:box=1:boxcolor=black@0.55:boxborderw=16:x=(w-text_w)/2:y=1080:enable='between(t,{a:.3f},{b:.3f})'"+nxt)
                   cur=nxt
