@@ -85,53 +85,63 @@ jobs:
           Build 2-5 EDITED CLIP PACKAGES for TikTok, Instagram Reels, and YouTube Shorts.
 
           IMPORTANT EDITING RULE:
-          A final clip does NOT have to be one continuous source section. You may combine 2, 3, or 4 strong source segments into one polished short using hard cuts. Intro/setup and outro/ending segments are allowed when they improve the story. For example, a short can use a brief setup, then jump to the strongest enforcement moment, then a reaction/payoff, then an ending. This is intentional editing, NOT a requirement to keep one continuous timestamp.
+          A final clip does NOT have to be one continuous source section. You may combine 2, 3, or 4 strong source segments into one polished short using hard cuts. Intro/setup and outro/ending segments are allowed when they improve the story. This is intentional editing, not a requirement to keep one continuous timestamp.
 
           For each package:
-          - Use 1-4 source segments, in the exact playback order.
+          - Use 1-4 source segments, in exact playback order.
           - Total final runtime should usually be 15-45 seconds and must be 10-60 seconds.
           - Each segment should normally be at least 2.5 seconds and should start/end at natural speech or action boundaries.
           - The combined segments must tell one coherent mini-story and feel intentionally edited.
           - The first segment should be a strong hook/setup when useful, but do NOT force an intro if the strongest moment works better immediately.
           - The last segment may be a natural outro, reaction, reveal, or payoff when useful.
-          - Prioritize the strongest enforcement, cease and desist, cheat provider, legal notice, confrontation, reaction, reveal, strong statement, or visually interesting moment.
-          - Remove dead air, repetitive material, weak setup, long pauses, and irrelevant sections by simply not selecting them.
+          - Prioritize enforcement, cease and desist, cheat provider, legal notice, confrontation, reaction, reveal, strong statement, or visually interesting moments.
+          - Remove dead air, repetitive material, weak setup, long pauses, and irrelevant sections by not selecting them.
           - Do not select multiple packages that tell the same story or reuse the same major moment.
           - Do not invent dialogue, events, timestamps, or footage. ONLY use footage that actually exists in the source video.
-          - Preserve factual meaning. Editing may reorder separate moments into a coherent sequence, but must not create a misleading claim that did not happen.
+          - Preserve factual meaning. Editing may combine separate moments into a coherent sequence, but must not create a misleading claim that did not happen.
           - Prefer precise, punchy edits over long clips. Hard cuts are acceptable and preferred to awkward filler.
           - Score each package from 1-100 for viral short-form quality.
 
           Return the strongest 2-5 edited clip packages. Timestamps must be precise HH:MM:SS.'''
 
-          # Gemini can temporarily return 503/UNAVAILABLE during periods of high demand.
-          # Retry with exponential backoff before failing the workflow.
+          # Use a primary model plus fallbacks. A temporary 503 from one model must not
+          # waste the whole workflow when another supported Gemini model is available.
+          models = [
+              'gemini-3-flash-preview',
+              'gemini-2.5-flash',
+              'gemini-2.5-flash-lite'
+          ]
           analysis = None
           last_error = None
-          for attempt in range(1, 5):
-              try:
-                  print(f'Gemini analysis attempt {attempt}/4...')
-                  response=client.models.generate_content(
-                      model='gemini-3-flash-preview',
-                      contents=[video,prompt],
-                      config=types.GenerateContentConfig(
-                          response_mime_type='application/json',
-                          response_schema=ClipAnalysis
+
+          for model in models:
+              for attempt in range(1, 4):
+                  try:
+                      print(f'Gemini analysis: model={model}, attempt={attempt}/3...')
+                      response=client.models.generate_content(
+                          model=model,
+                          contents=[video,prompt],
+                          config=types.GenerateContentConfig(
+                              response_mime_type='application/json',
+                              response_schema=ClipAnalysis
+                          )
                       )
-                  )
-                  analysis=ClipAnalysis.model_validate_json(response.text)
-                  print('Gemini analysis succeeded.')
+                      analysis=ClipAnalysis.model_validate_json(response.text)
+                      print(f'Gemini analysis succeeded with {model}.')
+                      break
+                  except Exception as exc:
+                      last_error=exc
+                      print(f'Gemini {model} attempt {attempt} failed: {exc}')
+                      if attempt < 3:
+                          delay=10 * (2 ** (attempt - 1))
+                          print(f'Waiting {delay}s before retry...')
+                          time.sleep(delay)
+              if analysis is not None:
                   break
-              except Exception as exc:
-                  last_error=exc
-                  print(f'Gemini analysis attempt {attempt} failed: {exc}')
-                  if attempt < 4:
-                      delay=10 * (2 ** (attempt - 1))
-                      print(f'Waiting {delay}s before retry...')
-                      time.sleep(delay)
+              print(f'Primary model {model} unavailable; trying next fallback model.')
 
           if analysis is None:
-              raise RuntimeError(f'Gemini analysis failed after 4 attempts: {last_error}')
+              raise RuntimeError(f'Gemini analysis failed on all fallback models: {last_error}')
 
           candidates=[]
           for c in analysis.clips:
@@ -143,24 +153,27 @@ jobs:
                       valid=False; break
                   segs.append({'start':stamp(a),'end':stamp(b),'start_sec':a,'end_sec':b,'purpose':s.purpose})
               if not valid or not segs or len(segs)>4: continue
-              segs.sort(key=lambda x:x['start_sec'])
+              # Keep Gemini's requested playback order. The editor should normally
+              # choose chronological source order, so reject backwards sequences.
+              if any(segs[i]['start_sec'] >= segs[i+1]['start_sec'] for i in range(len(segs)-1)):
+                  continue
               total=sum(x['end_sec']-x['start_sec'] for x in segs)
               if total<10 or total>60: continue
-              # Reject overlapping source segments inside the same package.
               if any(overlap(segs[i],segs[j],gap=0) for i in range(len(segs)) for j in range(i+1,len(segs))): continue
-              candidates.append({'segments':segs,'total_sec':total,'title':c.title,'hook':c.hook,'reason':c.reason,'score':c.score})
+              score=max(1,min(100,int(c.score)))
+              candidates.append({'segments':segs,'total_sec':total,'title':c.title,'hook':c.hook,'reason':c.reason,'score':score})
 
           candidates.sort(key=lambda x:x['score'],reverse=True)
           selected=[]
           for c in candidates:
-              # Avoid reusing the same major source moments across final packages.
-              flattened=c['segments']
-              if any(any(overlap(s,e,gap=2) for s in flattened for e in existing['segments']) for existing in selected):
+              if any(any(overlap(s,e,gap=2) for s in c['segments'] for e in existing['segments']) for existing in selected):
                   continue
               selected.append(c)
               if len(selected)==5: break
 
-          if not selected: raise RuntimeError('No valid edited clips were selected.')
+          if not selected:
+              raise RuntimeError('No valid edited clips were selected.')
+
           final=[]
           for i,c in enumerate(selected,1):
               final.append({
@@ -186,12 +199,16 @@ jobs:
           set -euo pipefail
           mkdir -p output
           python - <<'PY'
-          import json, subprocess, os
-          with open('clips.json',encoding='utf-8') as f: data=json.load(f)
+          import json, subprocess
+
+          with open('clips.json',encoding='utf-8') as f:
+              data=json.load(f)
+
           logo='Call_of_Duty_Wordmark_Stacked_CMYK_White.png'
           font='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
           campaign_text='Real footage of a Call of Duty\ncheat provider being served a legal notice'
-          with open('campaign_text.txt','w',encoding='utf-8') as f: f.write(campaign_text)
+          with open('campaign_text.txt','w',encoding='utf-8') as f:
+              f.write(campaign_text)
 
           def to_seconds(ts):
               h,m,s=ts.split(':')
@@ -203,27 +220,39 @@ jobs:
           ).stdout.strip() != ''
 
           for clip in data['clips']:
-              rank=clip['rank']; segments=clip['segments']; out=f'output/clip_{rank:02d}.mp4'
+              rank=clip['rank']
+              segments=clip['segments']
+              out=f'output/clip_{rank:02d}.mp4'
               duration=sum(to_seconds(s['end'])-to_seconds(s['start']) for s in segments)
               if duration <= 0:
                   raise RuntimeError(f'Invalid edited duration for clip {rank}')
               print(f'Rendering edited clip {rank}: {len(segments)} segments, {duration:.2f}s total')
 
+              n=len(segments)
               parts=[]
+
+              # Split the source streams first. This is required because each trim
+              # branch consumes its own filter output; it also makes multi-cut clips
+              # reliable for 2, 3, or 4 source segments.
+              parts.append('[0:v]split=' + str(n) + ''.join(f'[vsrc{i}]' for i in range(n)))
+              if has_audio:
+                  parts.append('[0:a]asplit=' + str(n) + ''.join(f'[asrc{i}]' for i in range(n)))
+
               for i,s in enumerate(segments):
-                  a=to_seconds(s['start']); b=to_seconds(s['end'])
-                  parts.append(f'[0:v]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[v{i}]')
+                  a=to_seconds(s['start'])
+                  b=to_seconds(s['end'])
+                  parts.append(f'[vsrc{i}]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[v{i}]')
                   if has_audio:
-                      parts.append(f'[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[a{i}]')
+                      parts.append(f'[asrc{i}]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[a{i}]')
 
               if has_audio:
-                  concat_inputs=''.join(f'[v{i}][a{i}]' for i in range(len(segments)))
-                  parts.append(concat_inputs+f'concat=n={len(segments)}:v=1:a=1[joinedv][joineda]')
+                  concat_inputs=''.join(f'[v{i}][a{i}]' for i in range(n))
+                  parts.append(concat_inputs+f'concat=n={n}:v=1:a=1[joinedv][joineda]')
                   base_input='[joinedv]'
                   audio_map='[joineda]'
               else:
-                  concat_inputs=''.join(f'[v{i}]' for i in range(len(segments)))
-                  parts.append(concat_inputs+f'concat=n={len(segments)}:v=1:a=0[joinedv]')
+                  concat_inputs=''.join(f'[v{i}]' for i in range(n))
+                  parts.append(concat_inputs+f'concat=n={n}:v=1:a=0[joinedv]')
                   base_input='[joinedv]'
                   audio_map=None
 
@@ -232,28 +261,29 @@ jobs:
                   'pad=1080:608:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30[vid]'
               )
               parts.append(
-                  f'color=c=black:s=1080x1920:r=30:d={duration:.3f}[bg];'
-                  '[bg][vid]overlay=0:656[base];'
-                  '[1:v]scale=260:-1[logo];'
-                  '[base][logo]overlay=(W-w)/2:174[branded];'
-                  '[branded]drawtext=fontfile='+font+':textfile=campaign_text.txt:'
+                  f'color=c=black:s=1080x1920:r=30:d={duration:.3f}[bg]'
+                  ';[bg][vid]overlay=0:656[base]'
+                  ';[1:v]scale=260:-1[logo]'
+                  ';[base][logo]overlay=(W-w)/2:174[branded]'
+                  ';[branded]drawtext=fontfile='+font+':textfile=campaign_text.txt:'
                   'fontcolor=white:fontsize=40:line_spacing=10:'
                   'text_align=center:x=(w-text_w)/2:y=330:'
                   'shadowcolor=black@0.8:shadowx=2:shadowy=2:fix_bounds=1[outv]'
               )
-              fc=';'.join(parts)
 
+              fc=';'.join(parts)
               cmd=[
-                'ffmpeg','-hide_banner','-loglevel','warning','-y',
-                '-i','source.mp4','-loop','1','-i',logo,
-                '-filter_complex',fc,'-map','[outv]'
+                  'ffmpeg','-hide_banner','-loglevel','warning','-y',
+                  '-i','source.mp4','-loop','1','-i',logo,
+                  '-filter_complex',fc,
+                  '-map','[outv]'
               ]
               if audio_map:
                   cmd += ['-map',audio_map]
               cmd += [
-                '-t',f'{duration:.3f}','-r','30',
-                '-c:v','libx264','-preset','veryfast','-crf','22','-threads','2',
-                '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',out
+                  '-t',f'{duration:.3f}','-r','30',
+                  '-c:v','libx264','-preset','veryfast','-crf','22','-threads','2',
+                  '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',out
               ]
               subprocess.run(cmd,check=True)
               print(f'Created {out}')
