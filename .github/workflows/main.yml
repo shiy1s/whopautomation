@@ -11,7 +11,7 @@ on:
 jobs:
   create-clips:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Checkout repository
@@ -46,76 +46,99 @@ jobs:
           from google import genai
           from google.genai import types
 
+          class Moment(BaseModel):
+              start: str = Field(description="Absolute source start timestamp HH:MM:SS")
+              end: str = Field(description="Absolute source end timestamp HH:MM:SS")
+              description: str
+              score: int
+
           class Segment(BaseModel):
               start: str = Field(description="Absolute source start timestamp HH:MM:SS")
               end: str = Field(description="Absolute source end timestamp HH:MM:SS")
               purpose: str = Field(description="hook, setup, payoff, reaction, reveal, or outro")
 
           class ClipCandidate(BaseModel):
-              segments: List[Segment] = Field(description="1-4 non-contiguous source segments, in playback order")
+              segments: List[Segment] = Field(description="1-4 non-contiguous source segments in chronological playback order")
               title: str
               hook: str
               reason: str
               score: int
 
           class ClipAnalysis(BaseModel):
+              moments: List[Moment]
               clips: List[ClipCandidate]
 
           def sec(t):
-              h,m,s=t.split(':'); return int(h)*3600+int(m)*60+float(s)
+              h,m,s=t.split(':')
+              return int(h)*3600+int(m)*60+float(s)
+
           def stamp(x):
-              x=int(round(x)); return f'{x//3600:02d}:{(x%3600)//60:02d}:{x%60:02d}'
+              x=int(round(x))
+              return f'{x//3600:02d}:{(x%3600)//60:02d}:{x%60:02d}'
+
           def overlap(a,b,gap=1):
               return not (a['end_sec']+gap<=b['start_sec'] or b['end_sec']+gap<=a['start_sec'])
 
-          duration=float(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1','source.mp4']).decode().strip())
+          duration=float(subprocess.check_output([
+              'ffprobe','-v','error','-show_entries','format=duration',
+              '-of','default=noprint_wrappers=1:nokey=1','source.mp4'
+          ]).decode().strip())
           print(f'Source duration: {duration:.2f}s')
+
           client=genai.Client(api_key=os.environ['GEMINI_API_KEY'])
           video=client.files.upload(file='source.mp4')
           while True:
               video=client.files.get(name=video.name)
               state=getattr(video.state,'name',str(video.state))
               print(f'Gemini video state: {state}')
-              if state=='ACTIVE': break
-              if state=='FAILED': raise RuntimeError('Gemini failed to process the video.')
+              if state=='ACTIVE':
+                  break
+              if state=='FAILED':
+                  raise RuntimeError('Gemini failed to process the video.')
               time.sleep(10)
 
-          prompt=f'''You are a professional short-form video editor. Analyze the COMPLETE official Call of Duty RICOCHET Enforcement campaign video. Source duration: {duration:.2f} seconds.
+          prompt=f'''You are the lead editor for a professional viral short-form clipping team. Analyze the COMPLETE official Call of Duty RICOCHET Enforcement campaign video. Source duration: {duration:.2f} seconds.
 
-          Build 2-5 EDITED CLIP PACKAGES for TikTok, Instagram Reels, and YouTube Shorts.
+          Your job is NOT merely to find one decent continuous timestamp. Think like a human editor who watches the whole source, identifies the best moments, then constructs several different high-retention Shorts from those moments.
 
-          IMPORTANT EDITING RULE:
-          A final clip does NOT have to be one continuous source section. You may combine 2, 3, or 4 strong source segments into one polished short using hard cuts. Intro/setup and outro/ending segments are allowed when they improve the story. This is intentional editing, not a requirement to keep one continuous timestamp.
+          STEP 1 — FIND THE BEST MOMENTS:
+          Identify at least 8 and preferably 10-15 distinct strong moments across the entire video. A moment can be an important statement, legal/enforcement action, confrontation, reaction, reveal, visual beat, setup, payoff, or natural ending. Give every moment a 1-100 score and precise timestamps.
 
-          For each package:
-          - Use 1-4 source segments, in exact playback order.
-          - Total final runtime should usually be 15-45 seconds and must be 10-60 seconds.
-          - Each segment should normally be at least 2.5 seconds and should start/end at natural speech or action boundaries.
-          - The combined segments must tell one coherent mini-story and feel intentionally edited.
-          - The first segment should be a strong hook/setup when useful, but do NOT force an intro if the strongest moment works better immediately.
-          - The last segment may be a natural outro, reaction, reveal, or payoff when useful.
-          - Prioritize enforcement, cease and desist, cheat provider, legal notice, confrontation, reaction, reveal, strong statement, or visually interesting moments.
-          - Remove dead air, repetitive material, weak setup, long pauses, and irrelevant sections by not selecting them.
-          - Do not select multiple packages that tell the same story or reuse the same major moment.
-          - Do not invent dialogue, events, timestamps, or footage. ONLY use footage that actually exists in the source video.
-          - Preserve factual meaning. Editing may combine separate moments into a coherent sequence, but must not create a misleading claim that did not happen.
-          - Prefer precise, punchy edits over long clips. Hard cuts are acceptable and preferred to awkward filler.
-          - Score each package from 1-100 for viral short-form quality.
+          STEP 2 — BUILD EDITED SHORTS:
+          From those moments, build 3-5 genuinely different EDITED CLIP PACKAGES for TikTok, Instagram Reels, and YouTube Shorts.
 
-          Return the strongest 2-5 edited clip packages. Timestamps must be precise HH:MM:SS.'''
+          IMPORTANT EDITING RULES:
+          - A final Short may contain 1, 2, 3, or 4 separate source segments.
+          - Non-contiguous segments are EXPECTED when they make the Short stronger.
+          - Hard cuts are preferred to filler between moments.
+          - Do not force a multi-cut edit when one continuous moment is clearly stronger.
+          - When possible, make the strongest packages use 2-4 purposeful cuts rather than one long mediocre section.
+          - A brief setup/hook may come first.
+          - A reaction, reveal, payoff, or natural outro may come last.
+          - The final sequence must be chronological in source time. Do not move a later event before an earlier event.
+          - Each segment should normally be 2.5-20 seconds and end at a natural speech/action boundary.
+          - Total final runtime should usually be 20-45 seconds and must be 10-60 seconds.
+          - Remove dead air, repetitive explanations, weak setup, long pauses, and irrelevant footage.
+          - Do not include a segment merely because it is needed to reach a duration target.
+          - Each package should have a clear hook in the first few seconds and a satisfying payoff.
+          - Prefer packages with a strong narrative arc: hook/setup -> escalation -> strongest moment -> reaction/payoff/outro.
+          - Different packages must have substantially different core moments and should not feel like minor variations of the same Short.
+          - Do not reuse the same major source moment across packages unless there are not enough distinct strong moments.
+          - Do not invent dialogue, events, timestamps, people, or footage. Use ONLY what is actually in the source.
+          - Preserve factual meaning. Combining separate moments is allowed, but the edit must not imply that unrelated events happened together.
+          - Prioritize RICOCHET, anti-cheat enforcement, cheat providers/sellers, cease-and-desist/legal notices, confrontations, reactions, reveals, strong statements, and visually compelling moments.
+          - Score each final package from 1-100 for viral short-form quality, considering hook strength, clarity, pacing, emotional payoff, uniqueness, and replay/share potential.
 
-          # Use a primary model plus fallbacks. A temporary 503 from one model must not
-          # waste the whole workflow when another supported Gemini model is available.
-          models = [
-              'gemini-3-flash-preview',
-              'gemini-2.5-flash',
-              'gemini-2.5-flash-lite'
-          ]
-          analysis = None
-          last_error = None
+          IMPORTANT OUTPUT QUALITY:
+          Return 8-15 strong moments AND 3-5 final clip packages. Do not return only one package when multiple distinct strong moments exist in the source.
+          Timestamps must be precise HH:MM:SS and must exist inside the source duration.'''
+
+          models=['gemini-3-flash-preview','gemini-2.5-flash','gemini-2.5-flash-lite']
+          analysis=None
+          last_error=None
 
           for model in models:
-              for attempt in range(1, 4):
+              for attempt in range(1,4):
                   try:
                       print(f'Gemini analysis: model={model}, attempt={attempt}/3...')
                       response=client.models.generate_content(
@@ -132,58 +155,133 @@ jobs:
                   except Exception as exc:
                       last_error=exc
                       print(f'Gemini {model} attempt {attempt} failed: {exc}')
-                      if attempt < 3:
-                          delay=10 * (2 ** (attempt - 1))
+                      if attempt<3:
+                          delay=10*(2**(attempt-1))
                           print(f'Waiting {delay}s before retry...')
                           time.sleep(delay)
               if analysis is not None:
                   break
-              print(f'Primary model {model} unavailable; trying next fallback model.')
+              print(f'Model {model} unavailable; trying next fallback.')
 
           if analysis is None:
               raise RuntimeError(f'Gemini analysis failed on all fallback models: {last_error}')
+
+          moments=[]
+          for m in analysis.moments:
+              try:
+                  a,b=sec(m.start),sec(m.end)
+                  if 0<=a<b<=duration and 1.5<=b-a<=30:
+                      moments.append({
+                          'start':stamp(a),'end':stamp(b),
+                          'start_sec':a,'end_sec':b,
+                          'description':m.description,
+                          'score':max(1,min(100,int(m.score)))
+                      })
+              except Exception:
+                  continue
+          moments.sort(key=lambda x:x['score'],reverse=True)
 
           candidates=[]
           for c in analysis.clips:
               segs=[]
               valid=True
-              for s in c.segments:
-                  a,b=sec(s.start),sec(s.end)
-                  if a<0 or b>duration or b<=a or (b-a)<2.5 or (b-a)>45:
-                      valid=False; break
-                  segs.append({'start':stamp(a),'end':stamp(b),'start_sec':a,'end_sec':b,'purpose':s.purpose})
-              if not valid or not segs or len(segs)>4: continue
-              # Keep Gemini's requested playback order. The editor should normally
-              # choose chronological source order, so reject backwards sequences.
-              if any(segs[i]['start_sec'] >= segs[i+1]['start_sec'] for i in range(len(segs)-1)):
+              try:
+                  for s in c.segments:
+                      a,b=sec(s.start),sec(s.end)
+                      if a<0 or b>duration or b<=a or b-a<2.5 or b-a>45:
+                          valid=False
+                          break
+                      segs.append({
+                          'start':stamp(a),'end':stamp(b),
+                          'start_sec':a,'end_sec':b,
+                          'purpose':s.purpose
+                      })
+              except Exception:
+                  valid=False
+
+              if not valid or not segs or len(segs)>4:
                   continue
+
+              # Playback order must follow the source timeline.
+              if any(segs[i]['start_sec']>=segs[i+1]['start_sec'] for i in range(len(segs)-1)):
+                  continue
+
               total=sum(x['end_sec']-x['start_sec'] for x in segs)
-              if total<10 or total>60: continue
-              if any(overlap(segs[i],segs[j],gap=0) for i in range(len(segs)) for j in range(i+1,len(segs))): continue
+              if total<10 or total>60:
+                  continue
+              if any(overlap(segs[i],segs[j],gap=0) for i in range(len(segs)) for j in range(i+1,len(segs))):
+                  continue
+
               score=max(1,min(100,int(c.score)))
-              candidates.append({'segments':segs,'total_sec':total,'title':c.title,'hook':c.hook,'reason':c.reason,'score':score})
+              # Small bonus for intentional multi-cut structure, without allowing
+              # the number of cuts to overpower actual content quality.
+              if len(segs)>=2:
+                  score=min(100,score+3)
+
+              candidates.append({
+                  'segments':segs,
+                  'total_sec':total,
+                  'title':c.title,
+                  'hook':c.hook,
+                  'reason':c.reason,
+                  'score':score
+              })
 
           candidates.sort(key=lambda x:x['score'],reverse=True)
+
+          # Select diverse packages. Reject only substantial reuse of the same
+          # source moments, rather than being overly strict about nearby timestamps.
           selected=[]
           for c in candidates:
-              if any(any(overlap(s,e,gap=2) for s in c['segments'] for e in existing['segments']) for existing in selected):
+              reused=False
+              for existing in selected:
+                  c_overlap=sum(
+                      min(s['end_sec'],e['end_sec'])-max(s['start_sec'],e['start_sec'])
+                      for s in c['segments'] for e in existing['segments']
+                      if min(s['end_sec'],e['end_sec'])>max(s['start_sec'],e['start_sec'])
+                  )
+                  shorter=min(c['total_sec'],existing['total_sec'])
+                  if shorter>0 and c_overlap/shorter>=0.60:
+                      reused=True
+                      break
+              if reused:
                   continue
               selected.append(c)
-              if len(selected)==5: break
+              if len(selected)==5:
+                  break
 
+          # If Gemini supplied fewer than two valid packages, keep the strongest
+          # candidate instead of failing, but expose the issue clearly in the log.
           if not selected:
               raise RuntimeError('No valid edited clips were selected.')
+          if len(selected)==1:
+              print('WARNING: Gemini returned only one valid diverse package.')
 
           final=[]
           for i,c in enumerate(selected,1):
               final.append({
                   'rank':i,
-                  'segments':[{'start':s['start'],'end':s['end'],'purpose':s['purpose']} for s in c['segments']],
+                  'segments':[{
+                      'start':s['start'],
+                      'end':s['end'],
+                      'purpose':s['purpose']
+                  } for s in c['segments']],
                   'duration_seconds':round(c['total_sec'],2),
-                  'title':c['title'],'hook':c['hook'],'reason':c['reason'],'score':c['score']
+                  'title':c['title'],
+                  'hook':c['hook'],
+                  'reason':c['reason'],
+                  'score':c['score']
               })
+
           with open('clips.json','w',encoding='utf-8') as f:
-              json.dump({'source_duration_seconds':duration,'clips':final},f,indent=2,ensure_ascii=False)
+              json.dump({
+                  'source_duration_seconds':duration,
+                  'top_moments':moments[:15],
+                  'clips':final
+              },f,indent=2,ensure_ascii=False)
+
+          print(f'Identified {len(moments)} valid strong moments.')
+          print(f'Selected {len(final)} diverse final clip packages.')
           print(json.dumps(final,indent=2,ensure_ascii=False))
           PY
           python analyze_video.py
@@ -217,26 +315,22 @@ jobs:
           has_audio=subprocess.run(
               ['ffprobe','-v','error','-select_streams','a:0','-show_entries','stream=index','-of','csv=p=0','source.mp4'],
               capture_output=True,text=True
-          ).stdout.strip() != ''
+          ).stdout.strip()!=''
 
           for clip in data['clips']:
               rank=clip['rank']
               segments=clip['segments']
               out=f'output/clip_{rank:02d}.mp4'
               duration=sum(to_seconds(s['end'])-to_seconds(s['start']) for s in segments)
-              if duration <= 0:
+              if duration<=0:
                   raise RuntimeError(f'Invalid edited duration for clip {rank}')
               print(f'Rendering edited clip {rank}: {len(segments)} segments, {duration:.2f}s total')
 
               n=len(segments)
               parts=[]
-
-              # Split the source streams first. This is required because each trim
-              # branch consumes its own filter output; it also makes multi-cut clips
-              # reliable for 2, 3, or 4 source segments.
-              parts.append('[0:v]split=' + str(n) + ''.join(f'[vsrc{i}]' for i in range(n)))
+              parts.append('[0:v]split='+str(n)+''.join(f'[vsrc{i}]' for i in range(n)))
               if has_audio:
-                  parts.append('[0:a]asplit=' + str(n) + ''.join(f'[asrc{i}]' for i in range(n)))
+                  parts.append('[0:a]asplit='+str(n)+''.join(f'[asrc{i}]' for i in range(n)))
 
               for i,s in enumerate(segments):
                   a=to_seconds(s['start'])
@@ -264,10 +358,10 @@ jobs:
                   f'color=c=black:s=1080x1920:r=30:d={duration:.3f}[bg]'
                   ';[bg][vid]overlay=0:656[base]'
                   ';[1:v]scale=260:-1[logo]'
-                  ';[base][logo]overlay=(W-w)/2:174[branded]'
+                  ';[base][logo]overlay=(W-w)/2:150[branded]'
                   ';[branded]drawtext=fontfile='+font+':textfile=campaign_text.txt:'
-                  'fontcolor=white:fontsize=40:line_spacing=10:'
-                  'text_align=center:x=(w-text_w)/2:y=330:'
+                  'fontcolor=white:fontsize=38:line_spacing=12:'
+                  'text_align=center:x=(w-text_w)/2:y=340:'
                   'shadowcolor=black@0.8:shadowx=2:shadowy=2:fix_bounds=1[outv]'
               )
 
@@ -279,8 +373,8 @@ jobs:
                   '-map','[outv]'
               ]
               if audio_map:
-                  cmd += ['-map',audio_map]
-              cmd += [
+                  cmd+=['-map',audio_map]
+              cmd+=[
                   '-t',f'{duration:.3f}','-r','30',
                   '-c:v','libx264','-preset','veryfast','-crf','22','-threads','2',
                   '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',out
