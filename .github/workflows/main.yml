@@ -11,7 +11,7 @@ on:
 jobs:
   create-clips:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -35,7 +35,7 @@ jobs:
         run: |
           ffprobe -v error -show_entries format=duration -show_entries stream=width,height -of default=noprint_wrappers=1 source.mp4
 
-      - name: Analyze video and build edited clip packages
+      - name: Analyze video, build edited packages, and generate captions
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
@@ -52,6 +52,11 @@ jobs:
               description: str
               score: int
 
+          class Caption(BaseModel):
+              start: str = Field(description="Absolute source start timestamp HH:MM:SS")
+              end: str = Field(description="Absolute source end timestamp HH:MM:SS")
+              text: str = Field(description="Exact spoken words for this caption line")
+
           class Segment(BaseModel):
               start: str = Field(description="Absolute source start timestamp HH:MM:SS")
               end: str = Field(description="Absolute source end timestamp HH:MM:SS")
@@ -59,6 +64,7 @@ jobs:
 
           class ClipCandidate(BaseModel):
               segments: List[Segment] = Field(description="1-4 non-contiguous source segments in chronological playback order")
+              captions: List[Caption] = Field(description="Synced source-time captions for spoken content in selected segments")
               title: str
               hook: str
               reason: str
@@ -73,82 +79,68 @@ jobs:
               return int(h)*3600+int(m)*60+float(s)
 
           def stamp(x):
-              x=int(round(x))
+              x=max(0,int(round(x)))
               return f'{x//3600:02d}:{(x%3600)//60:02d}:{x%60:02d}'
 
           def overlap(a,b,gap=1):
               return not (a['end_sec']+gap<=b['start_sec'] or b['end_sec']+gap<=a['start_sec'])
 
-          duration=float(subprocess.check_output([
-              'ffprobe','-v','error','-show_entries','format=duration',
-              '-of','default=noprint_wrappers=1:nokey=1','source.mp4'
-          ]).decode().strip())
+          duration=float(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1','source.mp4']).decode().strip())
           print(f'Source duration: {duration:.2f}s')
-
           client=genai.Client(api_key=os.environ['GEMINI_API_KEY'])
           video=client.files.upload(file='source.mp4')
           while True:
               video=client.files.get(name=video.name)
               state=getattr(video.state,'name',str(video.state))
               print(f'Gemini video state: {state}')
-              if state=='ACTIVE':
-                  break
-              if state=='FAILED':
-                  raise RuntimeError('Gemini failed to process the video.')
+              if state=='ACTIVE': break
+              if state=='FAILED': raise RuntimeError('Gemini failed to process the video.')
               time.sleep(10)
 
           prompt=f'''You are the lead editor for a professional viral short-form clipping team. Analyze the COMPLETE official Call of Duty RICOCHET Enforcement campaign video. Source duration: {duration:.2f} seconds.
 
-          Your job is NOT merely to find one decent continuous timestamp. Think like a human editor who watches the whole source, identifies the best moments, then constructs several different high-retention Shorts from those moments.
+          GOAL: Create several genuinely different, high-retention Shorts from the entire source. Think like a human editor, not a timestamp finder.
 
-          STEP 1 — FIND THE BEST MOMENTS:
-          Identify at least 8 and preferably 10-15 distinct strong moments across the entire video. A moment can be an important statement, legal/enforcement action, confrontation, reaction, reveal, visual beat, setup, payoff, or natural ending. Give every moment a 1-100 score and precise timestamps.
+          STEP 1 — FIND MOMENTS:
+          Identify 8-15 distinct strong moments across the whole video. Score each 1-100. Look for enforcement/legal action, cheat provider/seller material, confrontation, reaction, reveal, strong statement, visually compelling action, useful setup, payoff, or natural ending.
 
           STEP 2 — BUILD EDITED SHORTS:
-          From those moments, build 3-5 genuinely different EDITED CLIP PACKAGES for TikTok, Instagram Reels, and YouTube Shorts.
-
-          IMPORTANT EDITING RULES:
-          - A final Short may contain 1, 2, 3, or 4 separate source segments.
-          - Non-contiguous segments are EXPECTED when they make the Short stronger.
-          - Hard cuts are preferred to filler between moments.
-          - Do not force a multi-cut edit when one continuous moment is clearly stronger.
-          - When possible, make the strongest packages use 2-4 purposeful cuts rather than one long mediocre section.
-          - A brief setup/hook may come first.
-          - A reaction, reveal, payoff, or natural outro may come last.
-          - The final sequence must be chronological in source time. Do not move a later event before an earlier event.
-          - Each segment should normally be 2.5-20 seconds and end at a natural speech/action boundary.
+          Build 3-5 different clip packages.
+          - Each package may use 1, 2, 3, or 4 non-contiguous source segments.
+          - Multi-cut editing is EXPECTED when it improves retention.
+          - Hard cuts are preferred to filler.
+          - A single continuous segment is allowed when it is clearly strongest.
+          - Build a clear arc: hook/setup -> escalation -> strongest moment -> reaction/payoff/outro.
+          - Use chronological source order.
+          - Each segment should normally be 2.5-20 seconds.
           - Total final runtime should usually be 20-45 seconds and must be 10-60 seconds.
-          - Remove dead air, repetitive explanations, weak setup, long pauses, and irrelevant footage.
-          - Do not include a segment merely because it is needed to reach a duration target.
-          - Each package should have a clear hook in the first few seconds and a satisfying payoff.
-          - Prefer packages with a strong narrative arc: hook/setup -> escalation -> strongest moment -> reaction/payoff/outro.
-          - Different packages must have substantially different core moments and should not feel like minor variations of the same Short.
-          - Do not reuse the same major source moment across packages unless there are not enough distinct strong moments.
-          - Do not invent dialogue, events, timestamps, people, or footage. Use ONLY what is actually in the source.
-          - Preserve factual meaning. Combining separate moments is allowed, but the edit must not imply that unrelated events happened together.
-          - Prioritize RICOCHET, anti-cheat enforcement, cheat providers/sellers, cease-and-desist/legal notices, confrontations, reactions, reveals, strong statements, and visually compelling moments.
-          - Score each final package from 1-100 for viral short-form quality, considering hook strength, clarity, pacing, emotional payoff, uniqueness, and replay/share potential.
+          - Remove dead air, long pauses, repetitive explanations and weak setup.
+          - Do not add a segment just to reach a duration target.
+          - Different packages should have substantially different core moments.
+          - Avoid reusing the same major source moment across packages when enough alternatives exist.
+          - Do not invent dialogue, events, timestamps, people or footage.
+          - Preserve factual meaning. Combining separate moments is allowed only when the resulting sequence remains truthful and coherent.
 
-          IMPORTANT OUTPUT QUALITY:
-          Return 8-15 strong moments AND 3-5 final clip packages. Do not return only one package when multiple distinct strong moments exist in the source.
-          Timestamps must be precise HH:MM:SS and must exist inside the source duration.'''
+          STEP 3 — CAPTIONS:
+          For every selected package, return synced captions using ABSOLUTE SOURCE timestamps.
+          - Captions must contain only words actually spoken in the selected source segments.
+          - Keep captions short and readable: normally 2-8 words per line, maximum about 42 characters.
+          - Break at natural speech pauses.
+          - Every caption must fall completely inside one selected source segment.
+          - Do not invent or paraphrase dialogue.
+          - Timing should be close to the actual spoken words.
+
+          SCORE each final package 1-100 for hook strength, clarity, pacing, emotional payoff, uniqueness, visual interest, replay/share potential, and caption quality.
+          Return 8-15 moments and 3-5 final packages. Timestamps must be precise HH:MM:SS and inside the source duration.'''
 
           models=['gemini-3-flash-preview','gemini-2.5-flash','gemini-2.5-flash-lite']
           analysis=None
           last_error=None
-
           for model in models:
               for attempt in range(1,4):
                   try:
                       print(f'Gemini analysis: model={model}, attempt={attempt}/3...')
-                      response=client.models.generate_content(
-                          model=model,
-                          contents=[video,prompt],
-                          config=types.GenerateContentConfig(
-                              response_mime_type='application/json',
-                              response_schema=ClipAnalysis
-                          )
-                      )
+                      response=client.models.generate_content(model=model,contents=[video,prompt],config=types.GenerateContentConfig(response_mime_type='application/json',response_schema=ClipAnalysis))
                       analysis=ClipAnalysis.model_validate_json(response.text)
                       print(f'Gemini analysis succeeded with {model}.')
                       break
@@ -156,133 +148,73 @@ jobs:
                       last_error=exc
                       print(f'Gemini {model} attempt {attempt} failed: {exc}')
                       if attempt<3:
-                          delay=10*(2**(attempt-1))
-                          print(f'Waiting {delay}s before retry...')
-                          time.sleep(delay)
-              if analysis is not None:
-                  break
+                          delay=10*(2**(attempt-1)); print(f'Waiting {delay}s before retry...'); time.sleep(delay)
+              if analysis is not None: break
               print(f'Model {model} unavailable; trying next fallback.')
-
-          if analysis is None:
-              raise RuntimeError(f'Gemini analysis failed on all fallback models: {last_error}')
+          if analysis is None: raise RuntimeError(f'Gemini analysis failed on all fallback models: {last_error}')
 
           moments=[]
           for m in analysis.moments:
               try:
                   a,b=sec(m.start),sec(m.end)
                   if 0<=a<b<=duration and 1.5<=b-a<=30:
-                      moments.append({
-                          'start':stamp(a),'end':stamp(b),
-                          'start_sec':a,'end_sec':b,
-                          'description':m.description,
-                          'score':max(1,min(100,int(m.score)))
-                      })
-              except Exception:
-                  continue
+                      moments.append({'start':stamp(a),'end':stamp(b),'start_sec':a,'end_sec':b,'description':m.description,'score':max(1,min(100,int(m.score)))})
+              except Exception: continue
           moments.sort(key=lambda x:x['score'],reverse=True)
 
           candidates=[]
           for c in analysis.clips:
-              segs=[]
-              valid=True
+              segs=[]; valid=True
               try:
                   for s in c.segments:
                       a,b=sec(s.start),sec(s.end)
-                      if a<0 or b>duration or b<=a or b-a<2.5 or b-a>45:
-                          valid=False
-                          break
-                      segs.append({
-                          'start':stamp(a),'end':stamp(b),
-                          'start_sec':a,'end_sec':b,
-                          'purpose':s.purpose
-                      })
-              except Exception:
-                  valid=False
-
-              if not valid or not segs or len(segs)>4:
-                  continue
-
-              # Playback order must follow the source timeline.
-              if any(segs[i]['start_sec']>=segs[i+1]['start_sec'] for i in range(len(segs)-1)):
-                  continue
-
+                      if a<0 or b>duration or b<=a or b-a<2.5 or b-a>45: valid=False; break
+                      segs.append({'start':stamp(a),'end':stamp(b),'start_sec':a,'end_sec':b,'purpose':s.purpose})
+              except Exception: valid=False
+              if not valid or not segs or len(segs)>4: continue
+              if any(segs[i]['start_sec']>=segs[i+1]['start_sec'] for i in range(len(segs)-1)): continue
               total=sum(x['end_sec']-x['start_sec'] for x in segs)
-              if total<10 or total>60:
-                  continue
-              if any(overlap(segs[i],segs[j],gap=0) for i in range(len(segs)) for j in range(i+1,len(segs))):
-                  continue
+              if total<10 or total>60: continue
+              if any(overlap(segs[i],segs[j],gap=0) for i in range(len(segs)) for j in range(i+1,len(segs))): continue
+
+              captions=[]
+              for cap in c.captions:
+                  try:
+                      a,b=sec(cap.start),sec(cap.end); text=' '.join(cap.text.split()).strip()
+                      if not text or not (0<=a<b<=duration): continue
+                      if not any(a>=s['start_sec'] and b<=s['end_sec'] for s in segs): continue
+                      captions.append({'start':stamp(a),'end':stamp(b),'start_sec':a,'end_sec':b,'text':text[:120]})
+                  except Exception: continue
+              captions.sort(key=lambda x:x['start_sec'])
+              clean=[]
+              for cap in captions:
+                  if clean and cap['start_sec']<clean[-1]['end_sec']-0.05: continue
+                  clean.append(cap)
 
               score=max(1,min(100,int(c.score)))
-              # Small bonus for intentional multi-cut structure, without allowing
-              # the number of cuts to overpower actual content quality.
-              if len(segs)>=2:
-                  score=min(100,score+3)
-
-              candidates.append({
-                  'segments':segs,
-                  'total_sec':total,
-                  'title':c.title,
-                  'hook':c.hook,
-                  'reason':c.reason,
-                  'score':score
-              })
+              if len(segs)>=2: score=min(100,score+3)
+              candidates.append({'segments':segs,'captions':clean,'total_sec':total,'title':c.title,'hook':c.hook,'reason':c.reason,'score':score})
 
           candidates.sort(key=lambda x:x['score'],reverse=True)
-
-          # Select diverse packages. Reject only substantial reuse of the same
-          # source moments, rather than being overly strict about nearby timestamps.
           selected=[]
           for c in candidates:
               reused=False
               for existing in selected:
-                  c_overlap=sum(
-                      min(s['end_sec'],e['end_sec'])-max(s['start_sec'],e['start_sec'])
-                      for s in c['segments'] for e in existing['segments']
-                      if min(s['end_sec'],e['end_sec'])>max(s['start_sec'],e['start_sec'])
-                  )
+                  overlap_sec=sum(min(s['end_sec'],e['end_sec'])-max(s['start_sec'],e['start_sec']) for s in c['segments'] for e in existing['segments'] if min(s['end_sec'],e['end_sec'])>max(s['start_sec'],e['start_sec']))
                   shorter=min(c['total_sec'],existing['total_sec'])
-                  if shorter>0 and c_overlap/shorter>=0.60:
-                      reused=True
-                      break
-              if reused:
-                  continue
+                  if shorter>0 and overlap_sec/shorter>=0.60: reused=True; break
+              if reused: continue
               selected.append(c)
-              if len(selected)==5:
-                  break
-
-          # If Gemini supplied fewer than two valid packages, keep the strongest
-          # candidate instead of failing, but expose the issue clearly in the log.
-          if not selected:
-              raise RuntimeError('No valid edited clips were selected.')
-          if len(selected)==1:
-              print('WARNING: Gemini returned only one valid diverse package.')
+              if len(selected)==5: break
+          if not selected: raise RuntimeError('No valid edited clips were selected.')
 
           final=[]
           for i,c in enumerate(selected,1):
-              final.append({
-                  'rank':i,
-                  'segments':[{
-                      'start':s['start'],
-                      'end':s['end'],
-                      'purpose':s['purpose']
-                  } for s in c['segments']],
-                  'duration_seconds':round(c['total_sec'],2),
-                  'title':c['title'],
-                  'hook':c['hook'],
-                  'reason':c['reason'],
-                  'score':c['score']
-              })
-
-          with open('clips.json','w',encoding='utf-8') as f:
-              json.dump({
-                  'source_duration_seconds':duration,
-                  'top_moments':moments[:15],
-                  'clips':final
-              },f,indent=2,ensure_ascii=False)
-
+              final.append({'rank':i,'segments':[{'start':s['start'],'end':s['end'],'purpose':s['purpose']} for s in c['segments']], 'captions':[{'start':x['start'],'end':x['end'],'text':x['text']} for x in c['captions']], 'duration_seconds':round(c['total_sec'],2),'title':c['title'],'hook':c['hook'],'reason':c['reason'],'score':c['score']})
+          with open('clips.json','w',encoding='utf-8') as f: json.dump({'source_duration_seconds':duration,'top_moments':moments[:15],'clips':final},f,indent=2,ensure_ascii=False)
           print(f'Identified {len(moments)} valid strong moments.')
           print(f'Selected {len(final)} diverse final clip packages.')
-          print(json.dumps(final,indent=2,ensure_ascii=False))
+          for c in final: print(f"Clip {c['rank']}: score={c['score']}, duration={c['duration_seconds']}s, segments={len(c['segments'])}, captions={len(c['captions'])}")
           PY
           python analyze_video.py
 
@@ -291,106 +223,68 @@ jobs:
           test -f "Call_of_Duty_Wordmark_Stacked_CMYK_White.png" || { echo "ERROR: Official Call of Duty logo was not found."; exit 1; }
           echo "Official logo verified."
 
-      - name: Create professional edited 9:16 clips
-        timeout-minutes: 20
+      - name: Create professional edited 9:16 clips with synced captions
+        timeout-minutes: 25
         run: |
           set -euo pipefail
           mkdir -p output
           python - <<'PY'
           import json, subprocess
-
-          with open('clips.json',encoding='utf-8') as f:
-              data=json.load(f)
-
+          with open('clips.json',encoding='utf-8') as f: data=json.load(f)
           logo='Call_of_Duty_Wordmark_Stacked_CMYK_White.png'
           font='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
           campaign_text='Real footage of a Call of Duty\ncheat provider being served a legal notice'
-          with open('campaign_text.txt','w',encoding='utf-8') as f:
-              f.write(campaign_text)
-
           def to_seconds(ts):
-              h,m,s=ts.split(':')
-              return int(h)*3600+int(m)*60+float(s)
-
-          has_audio=subprocess.run(
-              ['ffprobe','-v','error','-select_streams','a:0','-show_entries','stream=index','-of','csv=p=0','source.mp4'],
-              capture_output=True,text=True
-          ).stdout.strip()!=''
-
+              h,m,s=ts.split(':'); return int(h)*3600+int(m)*60+float(s)
+          def ass_time(sec):
+              sec=max(0,float(sec)); h=int(sec//3600); m=int((sec%3600)//60); s=sec-h*3600-m*60
+              return f'{h}:{m:02d}:{s:05.2f}'
+          def ass_escape(text):
+              return text.replace('\\','\\\\').replace('{','\\{').replace('}','\\}').replace('\n','\\N')
+          has_audio=subprocess.run(['ffprobe','-v','error','-select_streams','a:0','-show_entries','stream=index','-of','csv=p=0','source.mp4'],capture_output=True,text=True).stdout.strip()!=''
           for clip in data['clips']:
-              rank=clip['rank']
-              segments=clip['segments']
-              out=f'output/clip_{rank:02d}.mp4'
+              rank=clip['rank']; segments=clip['segments']; out=f'output/clip_{rank:02d}.mp4'
               duration=sum(to_seconds(s['end'])-to_seconds(s['start']) for s in segments)
-              if duration<=0:
-                  raise RuntimeError(f'Invalid edited duration for clip {rank}')
-              print(f'Rendering edited clip {rank}: {len(segments)} segments, {duration:.2f}s total')
+              timeline=[]; cursor=0.0
+              for s in segments:
+                  a=to_seconds(s['start']); b=to_seconds(s['end']); timeline.append((a,b,cursor)); cursor+=b-a
 
-              n=len(segments)
-              parts=[]
+              ass='''[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Captions,DejaVu Sans,52,&H00FFFFFF,&H00FFFFFF,&H00101010,&H80000000,1,0,0,0,100,100,0,0,1,3,1,2,80,80,430,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'''
+              cap_lines=[]
+              for cap in clip.get('captions',[]):
+                  ca=to_seconds(cap['start']); cb=to_seconds(cap['end']); mapped=None
+                  for sa,sb,offset in timeline:
+                      if ca>=sa and cb<=sb: mapped=(offset+(ca-sa),offset+(cb-sa)); break
+                  if mapped: cap_lines.append(f'Dialogue: 0,{ass_time(mapped[0])},{ass_time(mapped[1])},Captions,,0,0,430,,{ass_escape(cap["text"])}')
+              with open(f'captions_{rank:02d}.ass','w',encoding='utf-8') as f: f.write(ass+'\n'.join(cap_lines)+'\n')
+
+              n=len(segments); parts=[]
               parts.append('[0:v]split='+str(n)+''.join(f'[vsrc{i}]' for i in range(n)))
-              if has_audio:
-                  parts.append('[0:a]asplit='+str(n)+''.join(f'[asrc{i}]' for i in range(n)))
-
+              if has_audio: parts.append('[0:a]asplit='+str(n)+''.join(f'[asrc{i}]' for i in range(n)))
               for i,s in enumerate(segments):
-                  a=to_seconds(s['start'])
-                  b=to_seconds(s['end'])
+                  a=to_seconds(s['start']); b=to_seconds(s['end'])
                   parts.append(f'[vsrc{i}]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[v{i}]')
-                  if has_audio:
-                      parts.append(f'[asrc{i}]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[a{i}]')
-
+                  if has_audio: parts.append(f'[asrc{i}]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[a{i}]')
               if has_audio:
-                  concat_inputs=''.join(f'[v{i}][a{i}]' for i in range(n))
-                  parts.append(concat_inputs+f'concat=n={n}:v=1:a=1[joinedv][joineda]')
-                  base_input='[joinedv]'
-                  audio_map='[joineda]'
+                  parts.append(''.join(f'[v{i}][a{i}]' for i in range(n))+f'concat=n={n}:v=1:a=1[joinedv][joineda]'); base='[joinedv]'; amap='[joineda]'
               else:
-                  concat_inputs=''.join(f'[v{i}]' for i in range(n))
-                  parts.append(concat_inputs+f'concat=n={n}:v=1:a=0[joinedv]')
-                  base_input='[joinedv]'
-                  audio_map=None
-
-              parts.append(
-                  base_input+'scale=1080:608:force_original_aspect_ratio=decrease,'
-                  'pad=1080:608:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30[vid]'
-              )
-              parts.append(
-                  f'color=c=black:s=1080x1920:r=30:d={duration:.3f}[bg]'
-                  ';[bg][vid]overlay=0:656[base]'
-                  ';[1:v]scale=260:-1[logo]'
-                  ';[base][logo]overlay=(W-w)/2:150[branded]'
-                  ';[branded]drawtext=fontfile='+font+':textfile=campaign_text.txt:'
-                  'fontcolor=white:fontsize=38:line_spacing=12:'
-                  'text_align=center:x=(w-text_w)/2:y=340:'
-                  'shadowcolor=black@0.8:shadowx=2:shadowy=2:fix_bounds=1[outv]'
-              )
-
-              fc=';'.join(parts)
-              cmd=[
-                  'ffmpeg','-hide_banner','-loglevel','warning','-y',
-                  '-i','source.mp4','-loop','1','-i',logo,
-                  '-filter_complex',fc,
-                  '-map','[outv]'
-              ]
-              if audio_map:
-                  cmd+=['-map',audio_map]
-              cmd+=[
-                  '-t',f'{duration:.3f}','-r','30',
-                  '-c:v','libx264','-preset','veryfast','-crf','22','-threads','2',
-                  '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',out
-              ]
+                  parts.append(''.join(f'[v{i}]' for i in range(n))+f'concat=n={n}:v=1:a=0[joinedv]'); base='[joinedv]'; amap=None
+              parts.append(base+'scale=1080:608:force_original_aspect_ratio=decrease,pad=1080:608:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30[vid]')
+              parts.append(f'color=c=black:s=1080x1920:r=30:d={duration:.3f}[bg];[bg][vid]overlay=0:656[base];[1:v]scale=240:-1[logo];[base][logo]overlay=(W-w)/2:140[branded];[branded]drawtext=fontfile={font}:textfile=campaign_text.txt:fontcolor=white:fontsize=36:line_spacing=12:text_align=center:x=(w-text_w)/2:y=335:shadowcolor=black@0.8:shadowx=2:shadowy=2:fix_bounds=1[headed];[headed]subtitles=captions_{rank:02d}.ass:fontsdir=/usr/share/fonts/truetype/dejavu[outv]')
+              cmd=['ffmpeg','-hide_banner','-loglevel','warning','-y','-i','source.mp4','-loop','1','-i',logo,'-filter_complex',';'.join(parts),'-map','[outv]']
+              if amap: cmd += ['-map',amap]
+              cmd += ['-t',f'{duration:.3f}','-r','30','-c:v','libx264','-preset','veryfast','-crf','22','-threads','2','-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',out]
+              print(f'Rendering clip {rank}: {len(segments)} segments, {duration:.2f}s, {len(cap_lines)} captions')
               subprocess.run(cmd,check=True)
-              print(f'Created {out}')
           PY
 
       - name: Validate generated clips
         run: |
           set -e
-          test -n "$(find output -name '*.mp4' -print -quit)" || { echo "ERROR: No clips generated."; exit 1; }
+          count=$(find output -name '*.mp4' -type f | wc -l)
+          test "$count" -gt 0 || { echo "ERROR: No clips generated."; exit 1; }
           for file in output/*.mp4; do
-            echo "===================================="
             echo "Checking $file"
-            echo "===================================="
             ffprobe -v error -show_entries format=duration -show_entries stream=width,height,codec_name -of default=noprint_wrappers=1 "$file"
           done
 
