@@ -8,10 +8,15 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   create-clips:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
+    env:
+      PYTHONUNBUFFERED: "1"
 
     steps:
       - name: Checkout repository
@@ -19,29 +24,34 @@ jobs:
 
       - name: Download official campaign video
         run: |
-          pip install -q gdown
+          set -euo pipefail
+          python -m pip install -q --disable-pip-version-check gdown
           gdown "${{ inputs.video_url }}" -O source.mp4
           test -s source.mp4
 
       - name: Install FFmpeg
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffmpeg -hide_banner -filters | grep -E 'drawtext|boxblur' >/dev/null
+          ffmpeg -version | head -1
 
       - name: Install Gemini SDK
-        run: |
-          pip install -q google-genai pydantic
+        run: python -m pip install -q --disable-pip-version-check google-genai pydantic
 
       - name: Check source video
         run: |
-          ffprobe -v error -show_entries format=duration -show_entries stream=width,height -of default=noprint_wrappers=1 source.mp4
+          set -euo pipefail
+          ffprobe -v error -show_entries format=duration -show_entries stream=codec_name,width,height,r_frame_rate -of default=noprint_wrappers=1 source.mp4
 
-      - name: Analyze video and build edited clip packages
+      - name: AI analysis and clip planning
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
+          set -euo pipefail
           cat > analyze_video.py <<'PY'
-          import os, json, time, subprocess
+          import json, os, subprocess, time
           from typing import List
           from pydantic import BaseModel
           from google import genai
@@ -52,81 +62,67 @@ jobs:
               end: str
               description: str
               score: int
-
           class Segment(BaseModel):
               start: str
               end: str
               purpose: str
-
           class Caption(BaseModel):
               start: str
               end: str
               text: str
-
           class ClipCandidate(BaseModel):
               segments: List[Segment]
               title: str
               hook: str
               reason: str
               score: int
-
           class ClipAnalysis(BaseModel):
               moments: List[Moment]
               clips: List[ClipCandidate]
               captions: List[Caption]
 
           def sec(t):
-              p=t.split(':')
-              if len(p)!=3: raise ValueError(t)
-              return int(p[0])*3600+int(p[1])*60+float(p[2])
-
+              h,m,s=t.split(':'); return int(h)*3600+int(m)*60+float(s)
           def stamp(x):
-              x=max(0,int(round(x)))
-              return f'{x//3600:02d}:{(x%3600)//60:02d}:{x%60:02d}'
+              x=max(0,float(x)); h=int(x//3600); m=int((x%3600)//60); s=x-h*3600-m*60
+              return f'{h:02d}:{m:02d}:{s:06.3f}'
 
-          duration=float(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1','source.mp4']).decode().strip())
-          print(f'Source duration: {duration:.2f}s')
-
+          duration=float(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1','source.mp4']).decode())
           client=genai.Client(api_key=os.environ['GEMINI_API_KEY'])
           video=client.files.upload(file='source.mp4')
-          while True:
+          for _ in range(90):
               video=client.files.get(name=video.name)
               state=getattr(video.state,'name',str(video.state))
-              print(f'Gemini video state: {state}')
+              print('Gemini video state:',state)
               if state=='ACTIVE': break
-              if state=='FAILED': raise RuntimeError('Gemini failed to process the video.')
+              if state=='FAILED': raise RuntimeError('Gemini failed to process source video')
               time.sleep(8)
+          else: raise TimeoutError('Gemini video processing timed out')
 
-          prompt=f'''You are the lead editor for a professional viral short-form clipping team. Analyze the COMPLETE official Call of Duty RICOCHET Enforcement campaign video. Source duration: {duration:.2f} seconds.
+          prompt=f'''Act as the senior viral short-form editor. Analyze the COMPLETE official Call of Duty RICOCHET Enforcement campaign video ({duration:.3f}s).
 
-          GOAL: create several genuinely strong Shorts from the source, not random long excerpts.
+          Find 8-15 distinct high-value moments across the ENTIRE video. Prioritize anti-cheat/RICOCHET enforcement, cheat providers or sellers, legal or cease-and-desist notices, confrontations, reactions, reveals, strong statements, visual proof and satisfying payoffs. Avoid filler and repetition.
 
-          FIND MOMENTS: Identify 8-15 distinct strong moments across the whole source. Prioritize RICOCHET, anti-cheat enforcement, cheat providers/sellers, legal or cease-and-desist notices, confrontations, reactions, reveals, strong statements and visually compelling moments. Give precise source timestamps and 1-100 scores.
+          Build 3-5 genuinely different Shorts. Each may contain 1-4 separate source segments. Non-contiguous cuts are encouraged when they improve storytelling. A useful structure is hook -> setup -> escalation -> strongest moment -> payoff -> concise ending. Intro/setup/outro are allowed when useful. Do not force cuts if one continuous moment is stronger.
 
-          BUILD CLIPS: Build 3-5 genuinely different clip packages. Each package may contain 1-4 separate source segments. Non-contiguous segments are encouraged when they improve pacing and storytelling. Use hook -> escalation -> strongest moment -> payoff when supported. Intro/setup and outro are allowed when useful. Hard cuts are preferred.
+          HARD EDIT RULES: source order must remain chronological; each segment 2.5-20s normally and never over 45s; total 12-55s, preferably 20-45s; remove dead air and repetition; never invent dialogue/events/timestamps; never create a misleading causal or simultaneous impression; different packages need different core moments. Score each package 1-100 for hook, clarity, pacing, payoff, uniqueness, campaign relevance and replay/share potential.
 
-          RULES: Segment order must be chronological in the original source. Each segment normally 2.5-20 seconds. Total package runtime 10-60 seconds, preferably 20-45. Remove dead air, repetition, weak setup and irrelevant footage. Do not force multiple cuts when one continuous moment is stronger. Do not invent dialogue, events or timestamps. Combining separate moments is allowed, but do not imply unrelated events happened together. Different packages should use substantially different core moments. Score each package 1-100 for hook, clarity, pacing, payoff, uniqueness and share/replay potential.
+          CAPTIONS: transcribe only actual spoken dialogue. Use absolute source timestamps. Keep lines short (2-8 words, about 28 characters when practical). Do not invent or paraphrase.
 
-          CAPTIONS: Transcribe only actual spoken dialogue from the source. Return short readable caption lines, normally 2-8 words each, with precise ABSOLUTE SOURCE timestamps. Do not invent words. Captions may cover the whole source; the renderer keeps only captions inside selected segments.
+          Return the requested structured data with HH:MM:SS.mmm timestamps.'''
 
-          Return 8-15 moments, 3-5 clip packages, and accurate spoken captions. All timestamps use HH:MM:SS.'''
-
-          models=['gemini-3-flash-preview','gemini-2.5-flash','gemini-2.5-flash-lite']
           analysis=None; last_error=None
-          for model in models:
+          for model in ['gemini-3-flash-preview','gemini-2.5-flash','gemini-2.5-flash-lite']:
               for attempt in range(1,4):
                   try:
-                      print(f'Gemini analysis: model={model}, attempt={attempt}/3')
-                      response=client.models.generate_content(model=model,contents=[video,prompt],config=types.GenerateContentConfig(response_mime_type='application/json',response_schema=ClipAnalysis))
-                      analysis=ClipAnalysis.model_validate_json(response.text)
-                      print(f'Gemini analysis succeeded with {model}.')
-                      break
-                  except Exception as exc:
-                      last_error=exc
-                      print(f'Gemini {model} attempt {attempt} failed: {exc}')
-                      if attempt<3: time.sleep(10*(2**(attempt-1)))
-              if analysis is not None: break
-          if analysis is None: raise RuntimeError(f'Gemini analysis failed on all fallback models: {last_error}')
+                      print(f'Analysis {model} attempt {attempt}/3')
+                      r=client.models.generate_content(model=model,contents=[video,prompt],config=types.GenerateContentConfig(response_mime_type='application/json',response_schema=ClipAnalysis,temperature=0.25))
+                      analysis=ClipAnalysis.model_validate_json(r.text); break
+                  except Exception as e:
+                      last_error=e; print('Gemini error:',e)
+                      if attempt<3: time.sleep(8*(2**(attempt-1)))
+              if analysis: break
+          if not analysis: raise RuntimeError(f'Gemini analysis failed on all fallback models: {last_error}')
 
           moments=[]
           for m in analysis.moments:
@@ -134,180 +130,184 @@ jobs:
                   a,b=sec(m.start),sec(m.end)
                   if 0<=a<b<=duration and 1.5<=b-a<=30:
                       moments.append({'start':stamp(a),'end':stamp(b),'start_sec':a,'end_sec':b,'description':m.description,'score':max(1,min(100,int(m.score)))})
-              except Exception: pass
+              except: pass
           moments.sort(key=lambda x:x['score'],reverse=True)
 
           candidates=[]
           for c in analysis.clips:
-              segs=[]; valid=True
               try:
+                  segs=[]
                   for s in c.segments:
                       a,b=sec(s.start),sec(s.end)
-                      if not (0<=a<b<=duration and 2.5<=b-a<=45): valid=False; break
+                      if not (0<=a<b<=duration and 2.5<=b-a<=45): raise ValueError()
                       segs.append({'start':stamp(a),'end':stamp(b),'start_sec':a,'end_sec':b,'purpose':s.purpose})
-              except Exception: valid=False
-              if not valid or not (1<=len(segs)<=4): continue
-              if any(segs[i]['start_sec']>=segs[i+1]['start_sec'] for i in range(len(segs)-1)): continue
-              total=sum(s['end_sec']-s['start_sec'] for s in segs)
-              if not (10<=total<=60): continue
-              candidates.append({'segments':segs,'duration_seconds':round(total,2),'title':c.title,'hook':c.hook,'reason':c.reason,'score':max(1,min(100,int(c.score)))})
-          candidates.sort(key=lambda c:c['score'],reverse=True)
+                  if not 1<=len(segs)<=4: continue
+                  if any(segs[i]['start_sec']>=segs[i+1]['start_sec'] for i in range(len(segs)-1)): continue
+                  total=sum(x['end_sec']-x['start_sec'] for x in segs)
+                  if not 12<=total<=55: continue
+                  candidates.append({'segments':segs,'duration_seconds':round(total,3),'title':c.title,'hook':c.hook,'reason':c.reason,'score':max(1,min(100,int(c.score)))})
+              except: pass
+          candidates.sort(key=lambda x:x['score'],reverse=True)
 
           selected=[]
           for c in candidates:
-              reused=False
+              if c['score']<60 and len(selected)>=2: continue
+              duplicate=False
               for e in selected:
                   overlap=sum(max(0,min(a['end_sec'],b['end_sec'])-max(a['start_sec'],b['start_sec'])) for a in c['segments'] for b in e['segments'])
-                  if overlap/min(c['duration_seconds'],e['duration_seconds'])>=0.60: reused=True; break
-              if not reused: selected.append(c)
+                  if overlap/min(c['duration_seconds'],e['duration_seconds'])>=0.60: duplicate=True; break
+              if not duplicate: selected.append(c)
               if len(selected)>=5: break
-          if not selected: raise RuntimeError('No valid edited clip packages returned by Gemini.')
+          if not selected: raise RuntimeError('No valid clip packages returned by Gemini')
 
           captions=[]
           for cap in analysis.captions:
               try:
                   a,b=sec(cap.start),sec(cap.end); text=' '.join(str(cap.text).split())
                   if 0<=a<b<=duration and text and len(text)<=120: captions.append({'start_sec':a,'end_sec':b,'text':text})
-              except Exception: pass
+              except: pass
           captions.sort(key=lambda x:x['start_sec'])
 
-          final=[]
+          clips=[]
           for i,c in enumerate(selected,1):
-              final.append({'rank':i,'segments':[{'start':s['start'],'end':s['end'],'purpose':s['purpose']} for s in c['segments']],'duration_seconds':c['duration_seconds'],'title':c['title'],'hook':c['hook'],'reason':c['reason'],'score':c['score']})
-          with open('clips.json','w',encoding='utf-8') as f:
-              json.dump({'source_duration_seconds':duration,'top_moments':moments[:15],'captions':captions,'clips':final},f,indent=2,ensure_ascii=False)
-          print(f'Identified {len(moments)} strong moments; selected {len(final)} clips; captured {len(captions)} caption lines.')
+              clips.append({'rank':i,'segments':[{'start':s['start'],'end':s['end'],'purpose':s['purpose']} for s in c['segments']],'duration_seconds':c['duration_seconds'],'title':c['title'],'hook':c['hook'],'reason':c['reason'],'score':c['score']})
+          with open('clips.json','w',encoding='utf-8') as f: json.dump({'source_duration_seconds':duration,'top_moments':moments[:15],'captions':captions,'clips':clips},f,indent=2,ensure_ascii=False)
+          print(f'Found {len(moments)} moments, selected {len(clips)} clips, {len(captions)} caption lines')
           PY
           python analyze_video.py
 
-      - name: Verify official logo and headline asset
-        run: |
-          test -f "Call_of_Duty_Wordmark_Stacked_CMYK_White.png"
-          test -f "campaign_text.txt"
-          echo "Brand assets verified."
-
-      - name: Create professional edited 9:16 clips with synced captions
-        timeout-minutes: 25
+      - name: Verify campaign assets
         run: |
           set -euo pipefail
-          mkdir -p output caption_files
-          python - <<'PY'
+          test -s Call_of_Duty_Wordmark_Stacked_CMYK_White.png
+          test -s campaign_text.txt
+          test -f /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+
+      - name: Render clips with robust two-pass FFmpeg pipeline
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          rm -rf output work caption_files
+          mkdir -p output work caption_files
+          cat > render_clips.py <<'PY'
           import json, os, subprocess
           with open('clips.json',encoding='utf-8') as f: data=json.load(f)
           logo='Call_of_Duty_Wordmark_Stacked_CMYK_White.png'
           font='/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
-
           def sec(ts):
               h,m,s=ts.split(':'); return int(h)*3600+int(m)*60+float(s)
-          def ass_time(x):
-              x=max(0,x); h=int(x//3600); m=int((x%3600)//60); s=x-h*3600-m*60
-              return f'{h}:{m:02d}:{s:05.2f}'
-          def ass_escape(t):
-              return str(t).replace('\\','\\\\').replace('{','\\{').replace('}','\\}').replace('\n',' ')
-
-          def make_ass(clip,idx):
-              rows=[]; cursor=0.0
-              for seg in clip['segments']:
-                  sa,sb=sec(seg['start']),sec(seg['end'])
-                  for cap in data.get('captions',[]):
-                      a=max(sa,cap['start_sec']); b=min(sb,cap['end_sec'])
-                      if b<=a: continue
-                      rows.append((cursor+a-sa,cursor+b-sa,ass_escape(cap['text'])))
-                  cursor += sb-sa
-              path=os.path.abspath(f'caption_files/captions_{idx:02d}.ass')
-              with open(path,'w',encoding='utf-8') as f:
-                  f.write('[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nScaledBorderAndShadow: yes\n\n')
-                  f.write('[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n')
-                  f.write('Style: Default,DejaVu Sans,42,&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,1,0,0,0,100,100,0,0,1,3,1,2,70,70,840,1\n\n')
-                  f.write('[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n')
-                  for a,b,t in rows: f.write(f'Dialogue: 0,{ass_time(a)},{ass_time(b)},Default,,0,0,840,,{t}\n')
-              print(f'Caption file created: {path} ({len(rows)} lines)')
-              return path
-
+          def run(cmd,label):
+              p=subprocess.run(cmd,text=True,capture_output=True)
+              if p.returncode:
+                  print(p.stderr[-6000:]); raise RuntimeError(f'{label} failed: exit {p.returncode}')
+              print(label,'OK')
+          def wrap(t):
+              words=t.split(); lines=[]; cur=''
+              for w in words:
+                  if len(cur)+(1 if cur else 0)+len(w)<=28: cur=(cur+' '+w).strip()
+                  else:
+                      if cur: lines.append(cur)
+                      cur=w
+              if cur: lines.append(cur)
+              return '\n'.join(lines[:2])
           audio=bool(subprocess.run(['ffprobe','-v','error','-select_streams','a:0','-show_entries','stream=index','-of','csv=p=0','source.mp4'],capture_output=True,text=True).stdout.strip())
+
           for clip in data['clips']:
-              idx=clip['rank']; segs=clip['segments']; out=f'output/clip_{idx:02d}.mp4'
-              total=sum(sec(s['end'])-sec(s['start']) for s in segs)
-              ass=make_ass(clip,idx).replace('\\','/')
-              n=len(segs)
-              parts=[f'[0:v]split={n}'+''.join(f'[vs{i}]' for i in range(n))]
-              if audio: parts.append(f'[0:a]asplit={n}'+''.join(f'[as{i}]' for i in range(n)))
+              idx=clip['rank']; segs=clip['segments']; total=sum(sec(s['end'])-sec(s['start']) for s in segs)
+              assembled=f'work/clip_{idx:02d}_assembled.mp4'
+
+              # PASS 1: cut/concatenate only. This is deliberately isolated from branding.
+              n=len(segs); g=[f'[0:v]split={n}'+''.join(f'[v{i}]' for i in range(n))]
+              if audio: g += [f'[0:a]asplit={n}'+''.join(f'[a{i}]' for i in range(n))]
               for i,s in enumerate(segs):
                   a,b=sec(s['start']),sec(s['end'])
-                  parts.append(f'[vs{i}]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[v{i}]')
-                  if audio: parts.append(f'[as{i}]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[a{i}]')
-              if audio:
-                  parts.append(''.join(f'[v{i}][a{i}]' for i in range(n))+f'concat=n={n}:v=1:a=1[jv][ja]'); base='[jv]'; amap='[ja]'
-              else:
-                  parts.append(''.join(f'[v{i}]' for i in range(n))+f'concat=n={n}:v=1:a=0[jv]'); base='[jv]'; amap=None
+                  g.append(f'[v{i}]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[v{i}t]')
+                  if audio: g.append(f'[a{i}]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[a{i}t]')
+              if audio: g.append(''.join(f'[v{i}t][a{i}t]' for i in range(n))+f'concat=n={n}:v=1:a=1[vout][aout]')
+              else: g.append(''.join(f'[v{i}t]' for i in range(n))+f'concat=n={n}:v=1:a=0[vout]')
+              cmd=['ffmpeg','-hide_banner','-loglevel','warning','-y','-i','source.mp4','-filter_complex',';'.join(g),'-map','[vout]']
+              if audio: cmd+=['-map','[aout]']
+              cmd+=['-t',f'{total:.3f}','-c:v','libx264','-preset','veryfast','-crf','20','-pix_fmt','yuv420p']
+              cmd+=['-c:a','aac','-b:a','160k'] if audio else ['-an']
+              cmd+=['-movflags','+faststart',assembled]
+              run(cmd,f'Assemble clip {idx}')
 
-              # Professional vertical presentation: use a softly blurred, darkened
-              # full-screen version of the source as the background instead of large
-              # dead black bars. Keep the original 16:9 footage intact in the center.
-              parts.append(base+'scale=1080:608:force_original_aspect_ratio=decrease,pad=1080:608:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30[vid]')
-              parts.append(base+'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=18:2,eq=brightness=-0.35:saturation=0.65[bg]')
-              parts.append('color=c=black@0.28:s=1080x1920:r=30:d='+f'{total:.3f}'+'[shade]')
-              parts.append('[bg][shade]overlay=0:0[bgdark]')
-              parts.append(f'color=c=black:s=1080x1920:r=30:d={total:.3f}[canvas];[canvas][bgdark]overlay=0:0[backdrop]')
-              parts.append('[backdrop][vid]overlay=0:656[basevideo]')
-              parts.append('[1:v]scale=230:-1[logo]')
-              parts.append('[basevideo][logo]overlay=(W-w)/2:125[branded]')
-              parts.append('[branded]drawtext=fontfile='+font+':textfile=campaign_text.txt:fontcolor=white:fontsize=36:line_spacing=12:text_align=center:x=(w-text_w)/2:y=335:shadowcolor=black@0.8:shadowx=2:shadowy=2:fix_bounds=1[headed]')
-              parts.append(f'[headed]subtitles=filename={ass}:fontsdir=/usr/share/fonts/truetype/dejavu[outv]')
-              graph=';'.join(parts)
-              cmd=['ffmpeg','-hide_banner','-loglevel','warning','-y','-i','source.mp4','-loop','1','-i',logo,'-filter_complex',graph,'-map','[outv]']
-              if audio: cmd+=['-map',amap]
-              cmd+=['-t',f'{total:.3f}','-r','30','-c:v','libx264','-preset','veryfast','-crf','22','-threads','2']
+              # Convert absolute source caption times into edited timeline times.
+              rows=[]; cursor=0.0
+              for s in segs:
+                  sa,sb=sec(s['start']),sec(s['end'])
+                  for cap in data.get('captions',[]):
+                      a=max(sa,cap['start_sec']); b=min(sb,cap['end_sec'])
+                      if b>a and b-a>=0.12: rows.append((cursor+a-sa,cursor+b-sa,wrap(cap['text'])))
+                  cursor+=sb-sa
+              rows.sort()
+              clean=[]
+              for r in rows:
+                  if clean and r[2]==clean[-1][2] and r[0]<=clean[-1][1]+0.05: clean[-1]=(clean[-1][0],max(clean[-1][1],r[1]),r[2])
+                  else: clean.append(r)
+
+              # PASS 2: vertical composition + branding + captions. No libass/ASS dependency.
+              parts=['[0:v]split=2[bg][fg]', '[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=18:2,eq=brightness=-0.35:saturation=0.70[bg0]', f'color=c=black@0.35:s=1080x1920:r=30:d={total:.3f}[shade]', '[bg0][shade]overlay=0:0[bg1]', '[fg]scale=1080:608:force_original_aspect_ratio=decrease,pad=1080:608:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30[fg0]', '[bg1][fg0]overlay=0:656[base]', '[1:v]scale=220:-1[logo]', '[base][logo]overlay=(W-w)/2:115[branded]', '[branded]drawtext=fontfile='+font+':textfile=campaign_text.txt:fontcolor=white:fontsize=34:line_spacing=10:text_align=center:x=(w-text_w)/2:y=320:shadowcolor=black@0.85:shadowx=2:shadowy=2:fix_bounds=1[v0]']
+              cur='[v0]'
+              for j,(a,b,text) in enumerate(clean,1):
+                  path=os.path.abspath(f'caption_files/clip_{idx:02d}_{j:03d}.txt')
+                  with open(path,'w',encoding='utf-8') as f: f.write(text)
+                  path=path.replace('\\','/')
+                  nxt=f'[vc{j}]'
+                  parts.append(cur+f"drawtext=fontfile={font}:textfile={path}:fontcolor=white:fontsize=42:borderw=3:bordercolor=black@0.95:box=1:boxcolor=black@0.55:boxborderw=16:x=(w-text_w)/2:y=1080:enable='between(t,{a:.3f},{b:.3f})'"+nxt)
+                  cur=nxt
+              parts.append(cur+'null[outv]')
+              final=f'output/clip_{idx:02d}.mp4'
+              cmd=['ffmpeg','-hide_banner','-loglevel','warning','-y','-i',assembled,'-loop','1','-i',logo,'-filter_complex',';'.join(parts),'-map','[outv]']
+              if audio: cmd+=['-map','0:a?']
+              cmd+=['-t',f'{total:.3f}','-r','30','-c:v','libx264','-preset','veryfast','-crf','22','-pix_fmt','yuv420p','-threads','2']
               cmd+=['-c:a','aac','-b:a','128k'] if audio else ['-an']
-              cmd+=['-movflags','+faststart','-shortest',out]
-              print(f'Rendering clip {idx}: {n} segments, {total:.2f}s, captions={ass}')
-              subprocess.run(cmd,check=True)
+              cmd+=['-movflags','+faststart','-shortest',final]
+              run(cmd,f'Final render clip {idx}')
           PY
+          python render_clips.py
 
-      - name: Quality gate
+      - name: Quality gate and validation
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json
+          import glob,json,os,subprocess
+          files=sorted(glob.glob('output/clip_*.mp4')); assert files,'No rendered clips'
           with open('clips.json',encoding='utf-8') as f: data=json.load(f)
-          clips=data.get('clips',[])
-          if not clips:
-              raise SystemExit('No clips available for quality gate.')
-          passed=[]
-          for c in clips:
-              score=int(c.get('score',0))
-              duration=float(c.get('duration_seconds',0))
-              segments=len(c.get('segments',[]))
-              reasons=[]
-              if score<70: reasons.append(f'score {score}<70')
-              if duration<10 or duration>60: reasons.append(f'duration {duration:.1f}s outside 10-60s')
-              if segments<1 or segments>4: reasons.append(f'{segments} segments outside 1-4')
-              if reasons:
-                  print(f"REJECT clip {c.get('rank')}: {'; '.join(reasons)}")
-              else:
-                  passed.append(c)
-                  print(f"PASS clip {c.get('rank')}: score={score}, duration={duration:.1f}s, segments={segments}")
-          if not passed:
-              raise SystemExit('Quality gate rejected every clip.')
-          print(f'Quality gate passed {len(passed)}/{len(clips)} clips.')
+          scores={c['rank']:c['score'] for c in data['clips']}; report=[]; kept=[]
+          for f in files:
+              r=int(os.path.basename(f).split('_')[1].split('.')[0])
+              j=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration,bit_rate','-show_entries','stream=codec_name,width,height','-of','json',f]))
+              d=float(j['format']['duration']); br=int(float(j['format'].get('bit_rate') or 0)); v=next(s for s in j['streams'] if s.get('codec_name')=='h264')
+              ok=10<=d<=60 and int(v['width'])==1080 and int(v['height'])==1920 and br>=500000 and scores.get(r,0)>=60
+              item={'file':os.path.basename(f),'rank':r,'duration':round(d,3),'width':int(v['width']),'height':int(v['height']),'bitrate':br,'ai_score':scores.get(r,0),'accepted':ok}; report.append(item)
+              if ok: kept.append(f)
+          with open('quality_report.json','w') as f: json.dump(report,f,indent=2)
+          for x in report: print(x)
+          for f in files:
+              if f not in kept: os.remove(f)
+          if not kept: raise RuntimeError('Quality gate rejected every clip')
+          print(f'Accepted {len(kept)}/{len(files)} clips')
           PY
 
-      - name: Validate generated clips
+      - name: Generate publishing metadata
+        run: |
+          python - <<'PY'
+          import json
+          with open('clips.json',encoding='utf-8') as f: d=json.load(f)
+          rows=[]
+          for c in d['clips']:
+              rows.append({'rank':c['rank'],'title':c['title'],'hook':c['hook'],'suggested_caption':f"{c['hook']}\n\n@Callofduty #CallOfDuty #RICOCHET\n#Ad"})
+          with open('publishing_metadata.json','w',encoding='utf-8') as f: json.dump(rows,f,indent=2,ensure_ascii=False)
+          PY
+
+      - name: Final validation
         run: |
           set -euo pipefail
           count=$(find output -maxdepth 1 -name 'clip_*.mp4' | wc -l)
           test "$count" -ge 1
           for f in output/clip_*.mp4; do
-            duration=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$f")
-            width=$(ffprobe -v error -select_streams v:0 -show_entries stream=width -of csv=p=0 "$f")
-            height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$f")
-            echo "$f: ${duration}s ${width}x${height}"
-            python - "$duration" "$width" "$height" <<'PY'
-          import sys
-          d=float(sys.argv[1]); w=int(sys.argv[2]); h=int(sys.argv[3])
-          assert 10 <= d <= 60, d
-          assert w==1080 and h==1920, (w,h)
-          PY
+            ffprobe -v error -show_entries format=duration -show_entries stream=codec_name,width,height -of default=noprint_wrappers=1 "$f"
           done
 
       - name: Upload generated clips
@@ -318,10 +318,13 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Upload clip analysis
+      - name: Upload analysis and QA
         uses: actions/upload-artifact@v4
         with:
           name: clip-analysis
-          path: clips.json
+          path: |
+            clips.json
+            quality_report.json
+            publishing_metadata.json
           if-no-files-found: error
           retention-days: 7
