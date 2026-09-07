@@ -1,6 +1,9 @@
 name: Generate Clip Metadata
 
 on:
+  workflow_run:
+    workflows: ["AI Video Clipping"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       clip_artifact_run_id:
@@ -14,6 +17,10 @@ permissions:
 
 jobs:
   generate-metadata:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
 
     steps:
@@ -30,10 +37,33 @@ jobs:
           python -m pip install --upgrade pip
           pip install google-genai
 
+      - name: Select source run
+        id: source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_RUN_ID: ${{ inputs.clip_artifact_run_id }}
+          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            RUN_ID="$DISPATCH_RUN_ID"
+          else
+            RUN_ID="$WORKFLOW_RUN_ID"
+          fi
+
+          if [ -z "$RUN_ID" ]; then
+            echo "ERROR: No source workflow run ID available."
+            exit 1
+          fi
+
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "Using source AI Video Clipping run: $RUN_ID"
+
       - name: Download clip artifact
         env:
           GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ inputs.clip_artifact_run_id }}
+          RUN_ID: ${{ steps.source.outputs.run_id }}
         run: |
           set -euo pipefail
 
