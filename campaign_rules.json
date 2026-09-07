@@ -1,0 +1,79 @@
+{
+  "campaign": {
+    "name": "Call of Duty - RICOCHET Enforcement Clipping",
+    "campaign_url": "https://contentrewards.com/discover/07c3822c-53e1-4420-b650-01b088e9852c",
+    "brand": "Call of Duty",
+    "required_account": "@Callofduty"
+  },
+
+  "eligibility": {
+    "minimum_duration_seconds": 10,
+    "maximum_duration_seconds": 60,
+    "official_footage_only": true,
+    "english_edit_required": true,
+    "original_edit_required": true,
+    "ricochet_relevance_required": true
+  },
+
+  "branding": {
+    "call_of_duty_logo_required": true,
+    "logo_must_remain_visible": true,
+    "required_account_tag": "@Callofduty"
+  },
+
+  "messaging": {
+    "campaign_topic": "RICOCHET Anti-Cheat enforcement",
+    "required_context": [
+      "RICOCHET",
+      "anti-cheat",
+      "cheat providers",
+      "cheat sellers",
+      "Call of Duty enforcement"
+    ],
+    "misleading_claims_forbidden": true,
+    "invented_information_forbidden": true
+  },
+
+  "caption": {
+    "required": true,
+    "must_be_content_accurate": true,
+    "must_not_invent_dialogue": true,
+    "burned_in_caption_detection": true
+  },
+
+  "disclosure": {
+    "required": true,
+    "allowed": [
+      "#Ad",
+      "#Advertisement",
+      "#Sponsored"
+    ],
+    "must_be_separate": true
+  },
+
+  "publishing": {
+    "minimum_live_duration_days": 30,
+    "visible_likes_required": true,
+    "paid_boosting_forbidden": true,
+    "story_posts_forbidden": true,
+    "spam_forbidden": true,
+    "reposts_forbidden": true
+  },
+
+  "content_safety": {
+    "external_footage_forbidden": true,
+    "unrelated_content_forbidden": true,
+    "misleading_editing_forbidden": true,
+    "fake_claims_forbidden": true
+  },
+
+  "hashtags": {
+    "campaign": [
+      "#CallOfDuty",
+      "#RICOCHET"
+    ],
+    "max_total_recommended": 8,
+    "content_related_required": true,
+    "trending_hashtags_must_be_live_checked": true
+  }
+}
