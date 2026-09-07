@@ -33,7 +33,7 @@ jobs:
           VIDEO_URL: ${{ inputs.video_url }}
         run: |
           mkdir -p work
-          gdown --fuzzy "$VIDEO_URL" -O work/source.mp4
+          gdown "$VIDEO_URL" -O work/source.mp4
 
           if [ ! -s work/source.mp4 ]; then
             echo "ERROR: Video download failed."
@@ -99,7 +99,7 @@ jobs:
           - Check whether the video is genuinely relevant to RICOCHET,
             anti-cheat, cheat providers, cheat sellers, or Call of Duty enforcement.
           - Check for visible Call of Duty branding/logo where applicable.
-          - Check whether the footage contains existing burned-in subtitles.
+          - Check whether the video contains existing burned-in subtitles.
           - Look for misleading edits or context.
           - Check whether there is enough useful material to create at least
             one compliant clip of 10 seconds or more.
