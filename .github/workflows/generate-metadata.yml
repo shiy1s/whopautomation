@@ -1,0 +1,177 @@
+name: Generate Clip Metadata
+
+on:
+  workflow_dispatch:
+    inputs:
+      clip_artifact_run_id:
+        description: "GitHub Actions run ID containing professional-cod-clips"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  generate-metadata:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install google-genai
+
+      - name: Download clip artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.clip_artifact_run_id }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p clips
+
+          echo "Downloading professional-cod-clips artifact..."
+
+          gh run download "$RUN_ID" \
+            --repo "${{ github.repository }}" \
+            --name professional-cod-clips \
+            --dir clips
+
+          echo ""
+          echo "Downloaded files:"
+          find clips -type f -maxdepth 3 -print
+
+      - name: Verify clips exist
+        run: |
+          set -euo pipefail
+
+          COUNT=$(find clips -type f \( \
+            -iname "*.mp4" \
+            -o -iname "*.mov" \
+            -o -iname "*.mkv" \
+          \) | wc -l)
+
+          echo "Found $COUNT video clip(s)."
+
+          if [ "$COUNT" -eq 0 ]; then
+            echo "ERROR: No video clips were found."
+            exit 1
+          fi
+
+      - name: Generate metadata for every clip
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p metadata
+
+          CLIP_NUMBER=0
+
+          while IFS= read -r -d '' CLIP; do
+            CLIP_NUMBER=$((CLIP_NUMBER + 1))
+
+            BASENAME=$(basename "$CLIP")
+            NAME="${BASENAME%.*}"
+
+            echo ""
+            echo "========================================"
+            echo "Generating metadata for: $BASENAME"
+            echo "========================================"
+
+            TEMP_DIR="metadata/temp_${CLIP_NUMBER}"
+            mkdir -p "$TEMP_DIR"
+
+            (
+              cd "$TEMP_DIR"
+
+              python ../../generate_metadata.py \
+                "../../$CLIP" \
+                "../../campaign_rules.json"
+
+              mv clip_metadata.json "../${NAME}_metadata.json"
+            )
+
+            echo ""
+            echo "Metadata generated:"
+            cat "metadata/${NAME}_metadata.json"
+
+          done < <(
+            find clips -type f \( \
+              -iname "*.mp4" \
+              -o -iname "*.mov" \
+              -o -iname "*.mkv" \
+            \) -print0
+          )
+
+          rm -rf metadata/temp_*
+
+      - name: Validate metadata files
+        run: |
+          set -euo pipefail
+
+          COUNT=$(find metadata -type f -name "*_metadata.json" | wc -l)
+
+          echo "Generated $COUNT metadata file(s)."
+
+          if [ "$COUNT" -eq 0 ]; then
+            echo "ERROR: No metadata files were generated."
+            exit 1
+          fi
+
+          for FILE in metadata/*_metadata.json; do
+            echo ""
+            echo "Validating $FILE..."
+
+            python - <<PY
+          import json
+
+          path = "$FILE"
+
+          with open(path, "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          required = [
+              "title",
+              "description",
+              "topic",
+              "hook",
+              "audience",
+              "event",
+              "emotion",
+              "search_terms",
+              "content_hashtags",
+              "discovery_hashtags",
+              "publishing",
+          ]
+
+          missing = [
+              key for key in required
+              if key not in data
+          ]
+
+          if missing:
+              raise SystemExit(
+                  f"Missing fields: {missing}"
+              )
+
+          print("VALID")
+          PY
+          done
+
+      - name: Upload metadata artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clip-metadata
+          path: metadata/*_metadata.json
+          if-no-files-found: error
+          retention-days: 30
