@@ -1,0 +1,213 @@
+name: RICOCHET Campaign Preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: "Google Drive video URL"
+        required: true
+        type: string
+      official_source_confirmed:
+        description: "Confirm this video came from the official campaign footage"
+        required: true
+        default: "true"
+        type: string
+
+jobs:
+  campaign-preflight:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          pip install google-genai gdown
+
+      - name: Download source video
+        env:
+          VIDEO_URL: ${{ inputs.video_url }}
+        run: |
+          mkdir -p work
+          gdown --fuzzy "$VIDEO_URL" -O work/source.mp4
+
+          if [ ! -s work/source.mp4 ]; then
+            echo "ERROR: Video download failed."
+            exit 1
+          fi
+
+          echo "Video downloaded successfully."
+          ffprobe -v error \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            work/source.mp4
+
+      - name: Run AI campaign compliance check
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OFFICIAL_SOURCE_CONFIRMED: ${{ inputs.official_source_confirmed }}
+        run: |
+          cat > preflight.py <<'PY'
+          import json
+          import os
+          import re
+          import time
+          from google import genai
+
+          client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+
+          with open("campaign_rules.json", "r", encoding="utf-8") as f:
+              rules = json.load(f)
+
+          video_path = "work/source.mp4"
+
+          print("Uploading video to Gemini...")
+
+          video_file = client.files.upload(file=video_path)
+
+          while True:
+              current = client.files.get(name=video_file.name)
+              state = getattr(current.state, "name", str(current.state))
+              print("Gemini file state:", state)
+
+              if state == "ACTIVE":
+                  video_file = current
+                  break
+
+              if state in ("FAILED", "ERROR"):
+                  raise RuntimeError("Gemini failed to process the video.")
+
+              time.sleep(5)
+
+          prompt = f"""
+          You are a strict campaign compliance reviewer.
+
+          Review the ENTIRE uploaded video and determine whether it is suitable
+          for the Call of Duty RICOCHET Enforcement Clipping campaign.
+
+          CAMPAIGN RULES:
+          {json.dumps(rules, indent=2)}
+
+          IMPORTANT:
+          - Inspect the actual video, not just the filename.
+          - Do not invent facts.
+          - Do not assume dialogue that cannot be heard or seen.
+          - Check whether the video is genuinely relevant to RICOCHET,
+            anti-cheat, cheat providers, cheat sellers, or Call of Duty enforcement.
+          - Check for visible Call of Duty branding/logo where applicable.
+          - Check whether the footage contains existing burned-in subtitles.
+          - Look for misleading edits or context.
+          - Check whether there is enough useful material to create at least
+            one compliant clip of 10 seconds or more.
+          - The repository input confirms whether the source was obtained from
+            the official campaign footage.
+
+          OFFICIAL SOURCE CONFIRMED:
+          {os.environ["OFFICIAL_SOURCE_CONFIRMED"]}
+
+          Return ONLY valid JSON using this structure:
+
+          {{
+            "approved": true,
+            "confidence": 0,
+            "reason": "",
+            "checks": {{
+              "official_source": {{
+                "pass": true,
+                "reason": ""
+              }},
+              "campaign_relevance": {{
+                "pass": true,
+                "reason": ""
+              }},
+              "call_of_duty_branding": {{
+                "pass": true,
+                "reason": ""
+              }},
+              "ricochet_or_anticheat_context": {{
+                "pass": true,
+                "reason": ""
+              }},
+              "usable_10_second_material": {{
+                "pass": true,
+                "reason": ""
+              }},
+              "misleading_content": {{
+                "pass": true,
+                "reason": ""
+              }},
+              "external_or_unrelated_footage": {{
+                "pass": true,
+                "reason": ""
+              }},
+              "burned_in_captions": {{
+                "detected": false,
+                "reason": ""
+              }}
+            }},
+            "warnings": [],
+            "required_actions": []
+          }}
+
+          Approval rules:
+          - approved MUST be false if official_source is false.
+          - approved MUST be false if the video is not meaningfully related
+            to the RICOCHET campaign.
+          - approved MUST be false if there is no usable 10+ second material.
+          - approved MUST be false for clearly misleading or unrelated footage.
+          - Minor issues that can be handled during editing should be warnings,
+            not automatic rejection.
+          """
+
+          response = client.models.generate_content(
+              model="gemini-3.7-flash",
+              contents=[video_file, prompt]
+          )
+
+          text = response.text.strip()
+
+          # Remove accidental markdown code fences.
+          text = re.sub(r"^```json\s*", "", text)
+          text = re.sub(r"^```\s*", "", text)
+          text = re.sub(r"\s*```$", "", text)
+
+          result = json.loads(text)
+
+          with open("preflight_result.json", "w", encoding="utf-8") as f:
+              json.dump(result, f, indent=2, ensure_ascii=False)
+
+          print(json.dumps(result, indent=2))
+
+          if not result.get("approved", False):
+              print("")
+              print("========================================")
+              print("CAMPAIGN PREFLIGHT: FAILED")
+              print("========================================")
+              print(result.get("reason", "No reason supplied."))
+              print("")
+              print("Required actions:")
+              for action in result.get("required_actions", []):
+                  print("-", action)
+
+              raise SystemExit(1)
+
+          print("")
+          print("========================================")
+          print("CAMPAIGN PREFLIGHT: PASSED")
+          print("========================================")
+          print(result.get("reason", ""))
+
+          PY
+
+          python preflight.py
+
+      - name: Upload preflight result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: campaign-preflight-result
+          path: preflight_result.json
