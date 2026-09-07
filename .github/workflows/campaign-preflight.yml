@@ -33,6 +33,7 @@ jobs:
           VIDEO_URL: ${{ inputs.video_url }}
         run: |
           mkdir -p work
+
           gdown "$VIDEO_URL" -O work/source.mp4
 
           if [ ! -s work/source.mp4 ]; then
@@ -41,9 +42,12 @@ jobs:
           fi
 
           echo "Video downloaded successfully."
+
+          echo "Video information:"
           ffprobe -v error \
-            -show_entries format=duration \
-            -of default=noprint_wrappers=1:nokey=1 \
+            -show_entries format=duration,size \
+            -show_entries stream=codec_name,width,height \
+            -of default=noprint_wrappers=1 \
             work/source.mp4
 
       - name: Run AI campaign compliance check
@@ -51,27 +55,56 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OFFICIAL_SOURCE_CONFIRMED: ${{ inputs.official_source_confirmed }}
         run: |
+
           cat > preflight.py <<'PY'
           import json
           import os
           import re
           import time
           from google import genai
+          from google.genai import types
 
-          client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+          API_KEY = os.environ["GEMINI_API_KEY"]
 
-          with open("campaign_rules.json", "r", encoding="utf-8") as f:
+          if not API_KEY:
+              raise RuntimeError("GEMINI_API_KEY is missing.")
+
+          client = genai.Client(api_key=API_KEY)
+
+          # ---------------------------------------------------------
+          # Load campaign rules
+          # ---------------------------------------------------------
+
+          with open(
+              "campaign_rules.json",
+              "r",
+              encoding="utf-8"
+          ) as f:
               rules = json.load(f)
 
           video_path = "work/source.mp4"
 
-          print("Uploading video to Gemini...")
+          # ---------------------------------------------------------
+          # Upload video
+          # ---------------------------------------------------------
+
+          print("========================================")
+          print("RICOCHET CAMPAIGN PREFLIGHT")
+          print("========================================")
+          print("")
+          print("Uploading source video to Gemini...")
 
           video_file = client.files.upload(file=video_path)
 
           while True:
               current = client.files.get(name=video_file.name)
-              state = getattr(current.state, "name", str(current.state))
+
+              state = getattr(
+                  current.state,
+                  "name",
+                  str(current.state)
+              )
+
               print("Gemini file state:", state)
 
               if state == "ACTIVE":
@@ -79,127 +112,491 @@ jobs:
                   break
 
               if state in ("FAILED", "ERROR"):
-                  raise RuntimeError("Gemini failed to process the video.")
+                  raise RuntimeError(
+                      "Gemini failed to process the uploaded video."
+                  )
 
               time.sleep(5)
 
-          prompt = f"""
-          You are a strict campaign compliance reviewer.
+          print("Video is ready for analysis.")
+          print("")
 
-          Review the ENTIRE uploaded video and determine whether it is suitable
+          # ---------------------------------------------------------
+          # AI prompt
+          # ---------------------------------------------------------
+
+          prompt = f"""
+          You are the campaign compliance and content-quality reviewer
           for the Call of Duty RICOCHET Enforcement Clipping campaign.
 
-          CAMPAIGN RULES:
-          {json.dumps(rules, indent=2)}
+          Your job is to inspect the ENTIRE uploaded video and determine
+          whether it is suitable for creating compliant short-form clips.
 
-          IMPORTANT:
-          - Inspect the actual video, not just the filename.
-          - Do not invent facts.
-          - Do not assume dialogue that cannot be heard or seen.
-          - Check whether the video is genuinely relevant to RICOCHET,
-            anti-cheat, cheat providers, cheat sellers, or Call of Duty enforcement.
-          - Check for visible Call of Duty branding/logo where applicable.
-          - Check whether the video contains existing burned-in subtitles.
-          - Look for misleading edits or context.
-          - Check whether there is enough useful material to create at least
-            one compliant clip of 10 seconds or more.
-          - The repository input confirms whether the source was obtained from
-            the official campaign footage.
+          ============================================================
+          CAMPAIGN RULES
+          ============================================================
 
-          OFFICIAL SOURCE CONFIRMED:
+          {json.dumps(rules, indent=2, ensure_ascii=False)}
+
+          ============================================================
+          OFFICIAL SOURCE CONFIRMATION
+          ============================================================
+
+          The workflow input says:
+
           {os.environ["OFFICIAL_SOURCE_CONFIRMED"]}
 
-          Return ONLY valid JSON using this structure:
+          Treat this as the user's confirmation that the source came
+          from the official campaign footage.
+
+          Do not claim that you independently verified the original
+          MediaSilo/source location unless the video itself provides
+          evidence of that.
+
+          ============================================================
+          WHAT YOU MUST CHECK
+          ============================================================
+
+          1. CAMPAIGN RELEVANCE
+
+          Determine whether the actual video is meaningfully connected
+          to the Call of Duty RICOCHET Anti-Cheat campaign.
+
+          Look for:
+          - RICOCHET
+          - anti-cheat
+          - cheating
+          - cheat providers
+          - cheat sellers
+          - enforcement
+          - legal/enforcement action against cheat providers
+          - Call of Duty security/enforcement
+
+          Reject unrelated gaming footage.
+
+          ------------------------------------------------------------
+
+          2. OFFICIAL FOOTAGE
+
+          The campaign requires official campaign footage.
+
+          The workflow input confirms whether the user says the source
+          came from the official campaign footage.
+
+          Do not reject merely because the source video itself does not
+          display a watermark proving its origin.
+
+          ------------------------------------------------------------
+
+          3. CALL OF DUTY BRANDING
+
+          Inspect the video for visible Call of Duty branding/logo.
+
+          Report:
+          - whether branding is visible
+          - approximately when it appears
+          - whether it remains visible throughout the footage
+
+          Do not invent branding that is not visible.
+
+          ------------------------------------------------------------
+
+          4. RICOCHET CONTEXT
+
+          Determine whether the actual content communicates the campaign
+          message about RICOCHET Anti-Cheat enforcement.
+
+          Be especially careful with:
+          - legal notices
+          - enforcement actions
+          - cheat providers
+          - cheat sellers
+          - anti-cheat operations
+
+          Do not make claims that cannot be supported by what is shown
+          or heard in the video.
+
+          ------------------------------------------------------------
+
+          5. USABLE CLIP MATERIAL
+
+          Determine whether the source contains at least one strong
+          moment that could produce a compliant short-form clip.
+
+          The usable material should be capable of producing a clip
+          between 10 and 60 seconds.
+
+          Look for:
+          - strong hooks
+          - surprising moments
+          - confrontation
+          - important dialogue
+          - enforcement moments
+          - clear explanations
+          - emotional reactions
+          - strong visual moments
+          - satisfying conclusions
+
+          ------------------------------------------------------------
+
+          6. MISLEADING CONTENT
+
+          Identify whether editing the source into a Short could create
+          a misleading interpretation.
+
+          Examples:
+          - removing critical context
+          - changing the meaning of dialogue
+          - presenting unrelated footage as RICOCHET enforcement
+          - implying something happened when it did not
+
+          Clearly misleading content should fail the preflight.
+
+          ------------------------------------------------------------
+
+          7. EXTERNAL OR UNRELATED FOOTAGE
+
+          Identify obvious external footage that is unrelated to the
+          campaign.
+
+          Do not reject normal editing elements such as:
+          - title cards
+          - campaign graphics
+          - logos
+          - subtitles
+          - transitions
+
+          Reject genuinely unrelated footage if it would violate the
+          campaign rules.
+
+          ------------------------------------------------------------
+
+          8. BURNED-IN CAPTIONS
+
+          Inspect the actual video for existing subtitles/captions.
+
+          Determine whether dialogue subtitles are already burned into
+          the source.
+
+          This is important because the clipping workflow must avoid
+          creating duplicate subtitles.
+
+          ------------------------------------------------------------
+
+          9. CONTENT ACCURACY
+
+          Everything generated later from this video must be grounded
+          in the actual footage.
+
+          Do not invent:
+          - names
+          - locations
+          - companies
+          - legal outcomes
+          - dates
+          - quotes
+          - events
+          - statistics
+          - claims about cheating
+
+          ============================================================
+          APPROVAL LOGIC
+          ============================================================
+
+          APPROVED = false if:
+
+          - the source is confirmed as NOT official
+          - the content is clearly unrelated to RICOCHET
+          - there is no usable 10+ second material
+          - the content is clearly misleading
+          - the source is primarily unrelated/external footage
+
+          Minor issues that can be fixed during editing should normally
+          become warnings rather than automatic rejection.
+
+          ============================================================
+          OUTPUT
+          ============================================================
+
+          Return ONLY valid JSON.
+
+          Do not use Markdown.
+          Do not wrap the JSON in ```json fences.
+
+          Use exactly this structure:
 
           {{
             "approved": true,
-            "confidence": 0,
-            "reason": "",
+            "confidence": 95,
+            "reason": "Short explanation of the overall decision.",
+
             "checks": {{
+
               "official_source": {{
                 "pass": true,
-                "reason": ""
+                "reason": "Explanation."
               }},
+
               "campaign_relevance": {{
                 "pass": true,
-                "reason": ""
+                "reason": "Explanation."
               }},
+
               "call_of_duty_branding": {{
                 "pass": true,
-                "reason": ""
+                "reason": "Explanation."
               }},
+
               "ricochet_or_anticheat_context": {{
                 "pass": true,
-                "reason": ""
+                "reason": "Explanation."
               }},
+
               "usable_10_second_material": {{
                 "pass": true,
-                "reason": ""
+                "reason": "Explanation."
               }},
+
               "misleading_content": {{
                 "pass": true,
-                "reason": ""
+                "reason": "Explanation."
               }},
+
               "external_or_unrelated_footage": {{
                 "pass": true,
-                "reason": ""
+                "reason": "Explanation."
               }},
+
               "burned_in_captions": {{
                 "detected": false,
-                "reason": ""
+                "reason": "Explanation."
               }}
+
             }},
+
             "warnings": [],
+
             "required_actions": []
           }}
 
-          Approval rules:
-          - approved MUST be false if official_source is false.
-          - approved MUST be false if the video is not meaningfully related
-            to the RICOCHET campaign.
-          - approved MUST be false if there is no usable 10+ second material.
-          - approved MUST be false for clearly misleading or unrelated footage.
-          - Minor issues that can be handled during editing should be warnings,
-            not automatic rejection.
+          ============================================================
+          FINAL REQUIREMENT
+          ============================================================
+
+          Be strict about campaign compliance but do not reject the
+          video for issues that can safely be handled during the normal
+          clipping/editing process.
           """
 
-          response = client.models.generate_content(
-              model="gemini-3.7-flash",
-              contents=[video_file, prompt]
+          # ---------------------------------------------------------
+          # Gemini fallback models
+          # ---------------------------------------------------------
+
+          models = [
+              "gemini-3.7-flash",
+              "gemini-3.6-flash",
+              "gemini-3.5-flash-lite"
+          ]
+
+          result = None
+          last_error = None
+
+          # ---------------------------------------------------------
+          # Try multiple models
+          # ---------------------------------------------------------
+
+          for model in models:
+
+              print("")
+              print("========================================")
+              print("Trying Gemini model:", model)
+              print("========================================")
+
+              for attempt in range(1, 4):
+
+                  try:
+
+                      print(
+                          f"Attempt {attempt}/3 with {model}"
+                      )
+
+                      response = client.models.generate_content(
+                          model=model,
+                          contents=[
+                              video_file,
+                              prompt
+                          ]
+                      )
+
+                      text = response.text.strip()
+
+                      # Remove accidental Markdown fences
+                      text = re.sub(
+                          r"^```json\s*",
+                          "",
+                          text,
+                          flags=re.IGNORECASE
+                      )
+
+                      text = re.sub(
+                          r"^```\s*",
+                          "",
+                          text
+                      )
+
+                      text = re.sub(
+                          r"\s*```$",
+                          "",
+                          text
+                      )
+
+                      result = json.loads(text)
+
+                      print("")
+                      print("Gemini analysis succeeded.")
+                      print("Model used:", model)
+                      print("")
+
+                      break
+
+                  except Exception as e:
+
+                      last_error = e
+
+                      print("")
+                      print("Gemini request failed:")
+                      print(str(e))
+                      print("")
+
+                      if attempt < 3:
+                          wait_time = 10 * attempt
+                          print(
+                              f"Waiting {wait_time} seconds..."
+                          )
+                          time.sleep(wait_time)
+
+              if result is not None:
+                  break
+
+              print("")
+              print(
+                  f"Model {model} failed after 3 attempts."
+              )
+              print(
+                  "Trying the next fallback model..."
+              )
+
+          # ---------------------------------------------------------
+          # Fail if every model failed
+          # ---------------------------------------------------------
+
+          if result is None:
+
+              print("")
+              print("========================================")
+              print("ALL GEMINI MODELS FAILED")
+              print("========================================")
+
+              raise RuntimeError(
+                  f"All Gemini models failed. Last error: {last_error}"
+              )
+
+          # ---------------------------------------------------------
+          # Validate result
+          # ---------------------------------------------------------
+
+          if not isinstance(result, dict):
+              raise RuntimeError(
+                  "Gemini returned an invalid JSON object."
+              )
+
+          if "approved" not in result:
+              raise RuntimeError(
+                  "Gemini response does not contain 'approved'."
+              )
+
+          # ---------------------------------------------------------
+          # Save result
+          # ---------------------------------------------------------
+
+          with open(
+              "preflight_result.json",
+              "w",
+              encoding="utf-8"
+          ) as f:
+
+              json.dump(
+                  result,
+                  f,
+                  indent=2,
+                  ensure_ascii=False
+              )
+
+          print("")
+          print("========================================")
+          print("PREFLIGHT RESULT")
+          print("========================================")
+
+          print(
+              json.dumps(
+                  result,
+                  indent=2,
+                  ensure_ascii=False
+              )
           )
 
-          text = response.text.strip()
-
-          # Remove accidental markdown code fences.
-          text = re.sub(r"^```json\s*", "", text)
-          text = re.sub(r"^```\s*", "", text)
-          text = re.sub(r"\s*```$", "", text)
-
-          result = json.loads(text)
-
-          with open("preflight_result.json", "w", encoding="utf-8") as f:
-              json.dump(result, f, indent=2, ensure_ascii=False)
-
-          print(json.dumps(result, indent=2))
+          # ---------------------------------------------------------
+          # Approval gate
+          # ---------------------------------------------------------
 
           if not result.get("approved", False):
+
               print("")
               print("========================================")
               print("CAMPAIGN PREFLIGHT: FAILED")
               print("========================================")
-              print(result.get("reason", "No reason supplied."))
+
+              print(
+                  result.get(
+                      "reason",
+                      "No reason supplied."
+                  )
+              )
+
               print("")
               print("Required actions:")
-              for action in result.get("required_actions", []):
-                  print("-", action)
+
+              actions = result.get(
+                  "required_actions",
+                  []
+              )
+
+              if actions:
+
+                  for action in actions:
+                      print("-", action)
+
+              else:
+
+                  print("- Review the campaign compliance result.")
 
               raise SystemExit(1)
+
+          # ---------------------------------------------------------
+          # Success
+          # ---------------------------------------------------------
 
           print("")
           print("========================================")
           print("CAMPAIGN PREFLIGHT: PASSED")
           print("========================================")
-          print(result.get("reason", ""))
+
+          print(
+              result.get(
+                  "reason",
+                  "Video passed campaign preflight."
+              )
+          )
 
           PY
 
@@ -211,3 +608,4 @@ jobs:
         with:
           name: campaign-preflight-result
           path: preflight_result.json
+          if-no-files-found: ignore
