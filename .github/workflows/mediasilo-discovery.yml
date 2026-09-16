@@ -15,16 +15,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
       - name: Install Playwright
         run: |
           npm init -y
-          npm install playwright@1.55.0
+          npm install --no-audit --no-fund playwright@1.55.0
           npx playwright install --with-deps chromium
       - name: Crawl MediaSilo
         env:
           REVIEW_URL: ${{ inputs.review_url }}
         run: |
-          cat > /tmp/discover.mjs <<'NODE'
+          cat > discover.mjs <<'NODE'
           import { chromium } from 'playwright';
           import fs from 'node:fs';
           const reviewUrl=process.env.REVIEW_URL;
@@ -52,7 +53,7 @@ jobs:
           for(const a of assets){const candidates=mediaHits.filter(m=>m.ctx===a.assetUrl||/download|derivative|media/i.test(m.url));if(candidates[0])a.directMediaUrl=candidates[0].url;}
           save(true); await browser.close();
           NODE
-          node /tmp/discover.mjs
+          node discover.mjs
       - if: always()
         uses: actions/upload-artifact@v4
         with:
