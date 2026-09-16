@@ -1,0 +1,59 @@
+name: MediaSilo Discovery Worker
+on:
+  workflow_dispatch:
+    inputs:
+      review_url:
+        description: MediaSilo review URL
+        required: true
+        type: string
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Crawl MediaSilo
+        env:
+          REVIEW_URL: ${{ inputs.review_url }}
+        run: |
+          cat > /tmp/discover.mjs <<"NODE"
+          import { chromium } from "playwright";
+          import fs from "node:fs";
+          const reviewUrl=process.env.REVIEW_URL;
+          if(!reviewUrl) throw new Error("REVIEW_URL missing");
+          const browser=await chromium.launch({headless:true});
+          const page=await browser.newPage({viewport:{width:1440,height:900}});
+          const mediaHits=new Set();
+          page.on("response",r=>{const u=r.url();if(/\.(mp4|m3u8|mov|webm|m4v)([?#]|$)/i.test(u)||(/cloudfront|mediasilo/i.test(u)&&/media|derivative|download/i.test(u)))mediaHits.add(u);});
+          const folders=[]; const assets=[]; const visited=new Set();
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          async function recurse(url,parentId,name){
+            if(visited.has(url))return; visited.add(url);
+            await page.goto(url,{waitUntil:"domcontentloaded",timeout:60000}).catch(()=>null); await sleep(1200);
+            const d=await page.evaluate(()=>({links:[...document.querySelectorAll("a")].map(a=>({href:a.href,text:(a.textContent||"").trim()})),videos:[...document.querySelectorAll("video")].map(v=>({src:v.currentSrc||v.src||null,duration:Number.isFinite(v.duration)?v.duration:null,width:v.videoWidth||null,height:v.videoHeight||null}))}));
+            for(const v of d.videos)if(v.src)mediaHits.add(v.src);
+            const folderId=(new URL(url).pathname.match(/\/f\/([^/?#]+)/i)||[])[1]||url; folders.push({folderId:folderId,name:name||"root",parentId:parentId,assetCount:0});
+            const child=[];
+            for(const a of d.links){if(!a.href)continue; if(/\/f\//i.test(a.href)){child.push(a);continue;} if(/\.(mp4|mov|webm|m4v)([?#]|$)/i.test(a.href)||/asset/i.test(a.href)){if(!assets.some(x=>x.assetUrl===a.href))assets.push({assetId:(a.href.match(/([0-9a-f]{8}-[0-9a-f-]{27,})/i)||[])[1]||null,fileName:a.text||null,title:a.text||null,size:null,duration:null,resolution:null,folder:name||"root",assetUrl:a.href,directMediaUrl:null});}}
+            for(const c of child)await recurse(c.href,folderId,c.text||"folder");
+          }
+          await recurse(reviewUrl,null,"root");
+          for(const a of assets){for(const u of mediaHits){if(a.assetUrl&&u.includes(a.assetUrl)){a.directMediaUrl=u;break;}}}
+          const out={assets:assets,folders:folders,sessionId:null,complete:visited.size>0,notes:"Visited "+visited.size+" pages; observed "+mediaHits.size+" media URLs.",generatedAt:new Date().toISOString()};
+          fs.writeFileSync("mediasilo-discovery.json",JSON.stringify(out,null,2));
+          await browser.close();
+          NODE
+          node /tmp/discover.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mediasilo-discovery
+          path: mediasilo-discovery.json
+          retention-days: 7
