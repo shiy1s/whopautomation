@@ -29,30 +29,38 @@ jobs:
           import fs from "node:fs";
           const reviewUrl=process.env.REVIEW_URL;
           if(!reviewUrl) throw new Error("REVIEW_URL missing");
-          const browser=await chromium.launch({headless:true});
-          const page=await browser.newPage({viewport:{width:1440,height:900}});
-          const mediaHits=new Set();
-          page.on("response",r=>{const u=r.url();if(/\.(mp4|m3u8|mov|webm|m4v)([?#]|$)/i.test(u)||(/cloudfront|mediasilo/i.test(u)&&/media|derivative|download/i.test(u)))mediaHits.add(u);});
-          const folders=[]; const assets=[]; const visited=new Set();
+          let browser=null; const mediaHits=new Set(); const folders=[]; const assets=[]; const visited=new Set();
           const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-          async function recurse(url,parentId,name){
-            if(visited.has(url))return; visited.add(url);
-            await page.goto(url,{waitUntil:"domcontentloaded",timeout:60000}).catch(()=>null); await sleep(1200);
-            const d=await page.evaluate(()=>({links:[...document.querySelectorAll("a")].map(a=>({href:a.href,text:(a.textContent||"").trim()})),videos:[...document.querySelectorAll("video")].map(v=>({src:v.currentSrc||v.src||null,duration:Number.isFinite(v.duration)?v.duration:null,width:v.videoWidth||null,height:v.videoHeight||null}))}));
-            for(const v of d.videos)if(v.src)mediaHits.add(v.src);
-            const folderId=(new URL(url).pathname.match(/\/f\/([^/?#]+)/i)||[])[1]||url; folders.push({folderId:folderId,name:name||"root",parentId:parentId,assetCount:0});
-            const child=[];
-            for(const a of d.links){if(!a.href)continue; if(/\/f\//i.test(a.href)){child.push(a);continue;} if(/\.(mp4|mov|webm|m4v)([?#]|$)/i.test(a.href)||/asset/i.test(a.href)){if(!assets.some(x=>x.assetUrl===a.href))assets.push({assetId:(a.href.match(/([0-9a-f]{8}-[0-9a-f-]{27,})/i)||[])[1]||null,fileName:a.text||null,title:a.text||null,size:null,duration:null,resolution:null,folder:name||"root",assetUrl:a.href,directMediaUrl:null});}}
-            for(const c of child)await recurse(c.href,folderId,c.text||"folder");
+          const writeOut=(extra={})=>fs.writeFileSync("mediasilo-discovery.json",JSON.stringify({assets,folders,sessionId:null,complete:false,mediaUrls:[...mediaHits],visitedPages:[...visited],...extra,generatedAt:new Date().toISOString()},null,2));
+          try{
+            browser=await chromium.launch({headless:true,args:["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage"],timeout:60000});
+            const context=await browser.newContext({viewport:{width:1440,height:900},ignoreHTTPSErrors:true,userAgent:"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36"});
+            const page=await context.newPage();
+            page.on("pageerror",e=>console.log("PAGE_ERROR",e.message));
+            page.on("requestfailed",r=>console.log("REQUEST_FAILED",r.url(),r.failure()?.errorText||"unknown"));
+            page.on("response",r=>{const u=r.url();if(/\.(mp4|m3u8|mov|webm|m4v)([?#]|$)/i.test(u)||(/cloudfront|mediasilo/i.test(u)&&/media|derivative|download/i.test(u)))mediaHits.add(u);});
+            async function recurse(url,parentId,name){
+              if(visited.has(url))return; visited.add(url); console.log("VISIT",url);
+              let navError=null; try{await page.goto(url,{waitUntil:"domcontentloaded",timeout:60000});}catch(e){navError=e.message; console.log("NAV_ERROR",navError);} await sleep(2000);
+              const d=await page.evaluate(()=>({title:document.title,url:location.href,body:(document.body?.innerText||"").slice(0,5000),links:[...document.querySelectorAll("a")].map(a=>({href:a.href,text:(a.textContent||"").trim()})),videos:[...document.querySelectorAll("video")].map(v=>({src:v.currentSrc||v.src||null,duration:Number.isFinite(v.duration)?v.duration:null,width:v.videoWidth||null,height:v.videoHeight||null}))}));
+              console.log("PAGE",JSON.stringify({title:d.title,url:d.url,links:d.links.length,videos:d.videos.length,navError}));
+              for(const v of d.videos)if(v.src)mediaHits.add(v.src);
+              const folderId=(new URL(url).pathname.match(/\/f\/([^/?#]+)/i)||[])[1]||url; folders.push({folderId,name:name||"root",parentId,assetCount:0});
+              const child=[];
+              for(const a of d.links){if(!a.href)continue; if(new URL(a.href).origin!==new URL(reviewUrl).origin)continue; if(/\/f\//i.test(a.href)){child.push(a);continue;} if(/\.(mp4|mov|webm|m4v)([?#]|$)/i.test(a.href)||/asset/i.test(a.href)){if(!assets.some(x=>x.assetUrl===a.href))assets.push({assetId:(a.href.match(/([0-9a-f]{8}-[0-9a-f-]{27,})/i)||[])[1]||null,fileName:a.text||null,title:a.text||null,size:null,duration:null,resolution:null,folder:name||"root",assetUrl:a.href,directMediaUrl:null});}}
+              for(const c of child)await recurse(c.href,folderId,c.text||"folder");
+            }
+            await recurse(reviewUrl,null,"root");
+            for(const a of assets){for(const u of mediaHits){if(a.assetUrl&&u.includes(a.assetUrl)){a.directMediaUrl=u;break;}}}
+            fs.writeFileSync("mediasilo-discovery.json",JSON.stringify({assets,folders,sessionId:null,complete:visited.size>0,mediaUrls:[...mediaHits],visitedPages:[...visited],pageCount:visited.size,assetCount:assets.length,generatedAt:new Date().toISOString()},null,2));
+            await browser.close(); browser=null;
+          }catch(e){
+            console.error("DISCOVERY_FATAL",e.stack||e.message); writeOut({error:e.message,stack:e.stack}); if(browser)await browser.close().catch(()=>{}); process.exitCode=1;
           }
-          await recurse(reviewUrl,null,"root");
-          for(const a of assets){for(const u of mediaHits){if(a.assetUrl&&u.includes(a.assetUrl)){a.directMediaUrl=u;break;}}}
-          const out={assets:assets,folders:folders,sessionId:null,complete:visited.size>0,notes:"Visited "+visited.size+" pages; observed "+mediaHits.size+" media URLs.",generatedAt:new Date().toISOString()};
-          fs.writeFileSync("mediasilo-discovery.json",JSON.stringify(out,null,2));
-          await browser.close();
           NODE
           node /tmp/discover.mjs
-      - uses: actions/upload-artifact@v4
+      - if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: mediasilo-discovery
           path: mediasilo-discovery.json
