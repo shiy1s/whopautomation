@@ -1,1 +1,63 @@
-name: MediaSilo Discovery Worker\non:\n  workflow_dispatch:\n    inputs:\n      review_url:\n        description: MediaSilo review URL\n        required: true\n        type: string\njobs:\n  discover:\n    runs-on: ubuntu-latest\n    timeout-minutes: 15\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n      - name: Install Playwright\n        run: |\n          npm init -y\n          npm install playwright@1.55.0\n          npx playwright install --with-deps chromium\n      - name: Crawl MediaSilo\n        env:\n          REVIEW_URL: ${{ inputs.review_url }}\n        run: |\n          cat > /tmp/discover.mjs <<"NODE"\n          import { chromium } from "playwright";\n          import fs from "node:fs";\n          const reviewUrl=process.env.REVIEW_URL;\n          if(!reviewUrl) throw new Error("REVIEW_URL missing");\n          const origin=new URL(reviewUrl).origin;\n          const assets=[]; const folders=[]; const visited=new Set(); const queued=new Set([reviewUrl]); const queue=[{url:reviewUrl,parentId:null,name:"root"}]; const mediaHits=new Map();\n          const sleep=ms=>new Promise(r=>setTimeout(r,ms));\n          const addMedia=(url,contextUrl)=>{if(!url||!/^https?:/i.test(url))return; if(/\.(mp4|m3u8|mov|webm|m4v)([?#]|$)/i.test(url)||(/cloudfront|mediasilo/i.test(url)&&/media|derivative|download|stream/i.test(url))){mediaHits.set(url,contextUrl);}};\n          const save=(extra={})=>fs.writeFileSync("mediasilo-discovery.json",JSON.stringify({assets,folders,complete:false,mediaUrls:[...mediaHits.keys()],visitedPages:[...visited],pageCount:visited.size,assetCount:assets.length,...extra,generatedAt:new Date().toISOString()},null,2));\n          const browser=await chromium.launch({headless:true,args:["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage"],timeout:60000});\n          const context=await browser.newContext({viewport:{width:1440,height:900},ignoreHTTPSErrors:true});\n          context.on("response",async response=>{try{const u=response.url(); addMedia(u,"network"); const ct=response.headers()["content-type"]||""; if(ct.includes("json")){const t=await response.text(); if(/asset|folder|derivative|media/i.test(t)) fs.appendFileSync("mediasilo-network.log",t.slice(0,20000)+"\n");}}catch{}});\n          const page=await context.newPage();\n          page.on("request",req=>addMedia(req.url(),"request"));\n          page.on("response",res=>addMedia(res.url(),"response"));\n          while(queue.length){\n            const item=queue.shift(); if(visited.has(item.url))continue; visited.add(item.url); console.log("VISIT",item.url);\n            let navError=null; try{await page.goto(item.url,{waitUntil:"domcontentloaded",timeout:60000});}catch(e){navError=e.message; console.log("NAV_ERROR",navError);} await sleep(3000);\n            const data=await page.evaluate(()=>{const abs=u=>{try{return new URL(u,location.href).href}catch{return null}}; return {title:document.title,url:location.href,links:[...document.querySelectorAll("a[href]")].map(a=>({href:abs(a.getAttribute("href")),text:(a.textContent||"").trim(),aria:a.getAttribute("aria-label")||""})),videos:[...document.querySelectorAll("video")].map(v=>({src:v.currentSrc||v.src||null,duration:Number.isFinite(v.duration)?v.duration:null,width:v.videoWidth||null,height:v.videoHeight||null})),sources:[...document.querySelectorAll("source[src]")].map(s=>abs(s.getAttribute("src"))),text:(document.body?.innerText||"").slice(0,12000)};});\n            for(const v of data.videos)addMedia(v.src,item.url); for(const s of data.sources)addMedia(s,item.url);\n            const folderId=(item.url.match(/\/f\/([^/?#]+)/i)||[])[1]||item.url; const folder={folderId,name:item.name||data.title||"root",parentId:item.parentId,assetCount:0,url:item.url}; if(!folders.some(f=>f.folderId===folderId))folders.push(folder);\n            const children=[];\n            for(const a of data.links){if(!a.href||new URL(a.href).origin!==origin)continue; if(/\/f\//i.test(a.href)){if(!visited.has(a.href)&&!queued.has(a.href)){queued.add(a.href);children.push({url:a.href,parentId:folderId,name:a.text||a.aria||"folder"});} continue;} if(/\/asset\//i.test(a.href)||/\/a\//i.test(a.href)||/asset/i.test(a.href)){const id=(a.href.match(/([0-9a-f]{8}-[0-9a-f-]{27,})/i)||[])[1]||null; if(!assets.some(x=>x.assetUrl===a.href))assets.push({assetId:id,fileName:a.text||null,title:a.text||null,size:null,duration:null,resolution:null,folder:folder.name,assetUrl:a.href,directMediaUrl:null});}}\n            folder.assetCount=assets.filter(a=>a.folder===folder.name).length; save({complete:false,navError});\n            for(const c of children)queue.push(c);\n          }\n          for(const a of assets){const candidates=[...mediaHits.entries()].filter(([,ctx])=>ctx===a.assetUrl||ctx===a.folder||ctx==="network"); if(candidates.length)a.directMediaUrl=candidates[0][0];}\n          save({complete:true}); await browser.close();\n          NODE\n          node /tmp/discover.mjs\n      - if: always()\n        uses: actions/upload-artifact@v4\n        with:\n          name: mediasilo-discovery\n          path: |\n            mediasilo-discovery.json\n            mediasilo-network.log\n          retention-days: 7\n
+name: MediaSilo Discovery Worker
+"on":
+  workflow_dispatch:
+    inputs:
+      review_url:
+        description: MediaSilo review URL
+        required: true
+        type: string
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Crawl MediaSilo
+        env:
+          REVIEW_URL: ${{ inputs.review_url }}
+        run: |
+          cat > /tmp/discover.mjs <<'NODE'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs';
+          const reviewUrl=process.env.REVIEW_URL;
+          if(!reviewUrl) throw new Error('REVIEW_URL missing');
+          const origin=new URL(reviewUrl).origin;
+          const assets=[]; const folders=[]; const visited=new Set(); const queued=new Set([reviewUrl]);
+          const queue=[{url:reviewUrl,parentId:null,name:'root'}]; const mediaHits=[]; const jsonHits=[];
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          const addMedia=(url,ctx)=>{if(!url||!/^https?:/i.test(url))return;if(/\.(mp4|m3u8|mov|webm|m4v)([?#]|$)/i.test(url)||/cloudfront|mediasilo/i.test(url))mediaHits.push({url,ctx});};
+          const addFolder=(id,name,parentId,url)=>{if(!folders.some(f=>f.folderId===id))folders.push({folderId:id,name:name||'folder',parentId,url,assetCount:0});};
+          const save=(complete=false)=>fs.writeFileSync('mediasilo-discovery.json',JSON.stringify({assets,folders,complete,mediaUrls:[...new Set(mediaHits.map(x=>x.url))],networkJson:jsonHits.slice(-200),visitedPages:[...visited],pageCount:visited.size,assetCount:assets.length,generatedAt:new Date().toISOString()},null,2));
+          const browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'],timeout:60000});
+          const context=await browser.newContext({viewport:{width:1440,height:900},ignoreHTTPSErrors:true});
+          context.on('response',async res=>{try{const u=res.url();addMedia(u,'network');const ct=res.headers()['content-type']||'';if(ct.includes('json')){const t=await res.text();if(/asset|folder|derivative|media/i.test(t)){jsonHits.push({url:u,body:t.slice(0,30000)});fs.appendFileSync('mediasilo-network.log',u+'\n'+t.slice(0,30000)+'\n');}}}catch{}});
+          const page=await context.newPage(); page.on('request',r=>addMedia(r.url(),'request')); page.on('response',r=>addMedia(r.url(),'response'));
+          while(queue.length){
+            const item=queue.shift(); if(visited.has(item.url))continue; visited.add(item.url); console.log('VISIT',item.url);
+            try{await page.goto(item.url,{waitUntil:'domcontentloaded',timeout:60000});}catch(e){console.log('NAV_ERROR',e.message);} await sleep(5000);
+            const d=await page.evaluate(()=>{const abs=u=>{try{return new URL(u,location.href).href}catch{return null}};const els=[...document.querySelectorAll('a[href],button,[role="link"],[data-testid],video,source')];return{title:document.title,url:location.href,links:els.map(a=>({href:abs(a.getAttribute('href')),text:(a.textContent||'').trim(),aria:a.getAttribute('aria-label')||'',testid:a.getAttribute('data-testid')||'',tag:a.tagName})),videos:[...document.querySelectorAll('video')].map(v=>({src:v.currentSrc||v.src||null,duration:Number.isFinite(v.duration)?v.duration:null,width:v.videoWidth||null,height:v.videoHeight||null}))};});
+            for(const v of d.videos)addMedia(v.src,item.url);
+            const folderId=(item.url.match(/\/f\/([^/?#]+)/i)||[])[1]||item.url; addFolder(folderId,item.name||d.title||'root',item.parentId,item.url); const folder=folders.find(f=>f.folderId===folderId);
+            for(const a of d.links){if(a.href&&a.href.startsWith(origin)){if(/\/f\//i.test(a.href)&&!visited.has(a.href)&&!queued.has(a.href)){queued.add(a.href);queue.push({url:a.href,parentId:folderId,name:a.text||a.aria||a.testid||'folder'});} if(/\/asset\//i.test(a.href)||/\/a\//i.test(a.href)){if(!assets.some(x=>x.assetUrl===a.href))assets.push({assetId:(a.href.match(/([0-9a-f]{8}-[0-9a-f-]{27,})/i)||[])[1]||null,fileName:a.text||null,title:a.text||null,size:null,duration:null,resolution:null,folder:folder.name,assetUrl:a.href,directMediaUrl:null});}}}
+            folder.assetCount=assets.filter(a=>a.folder===folder.name).length; save(false);
+          }
+          for(const a of assets){const candidates=mediaHits.filter(m=>m.ctx===a.assetUrl||/download|derivative|media/i.test(m.url));if(candidates[0])a.directMediaUrl=candidates[0].url;}
+          save(true); await browser.close();
+          NODE
+          node /tmp/discover.mjs
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mediasilo-discovery
+          path: |
+            mediasilo-discovery.json
+            mediasilo-network.log
+          retention-days: 7
