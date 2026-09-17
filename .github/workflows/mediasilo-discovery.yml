@@ -86,7 +86,9 @@ jobs:
             console.log('VISIT',item.url);
             try{await page.goto(item.url,{waitUntil:'domcontentloaded',timeout:60000});}
             catch(e){console.log('NAV_ERROR',e.message);}
-            await sleep(5000);
+            await sleep(10000);
+          const pageState=await page.evaluate(()=>({title:document.title,url:location.href,text:(document.body?.innerText||'').slice(0,3000),links:document.querySelectorAll('a').length,buttons:document.querySelectorAll('button').length,iframes:document.querySelectorAll('iframe').length,htmlLength:document.documentElement.outerHTML.length,resources:performance.getEntriesByType('resource').map(r=>r.name).filter(u=>/mediasilo|cloudfront|api|media|asset|folder/i.test(u)).slice(-100)}));
+          console.log('PAGE_STATE',JSON.stringify(pageState));
           
             const d=await page.evaluate(()=>{
               const abs=(u)=>{try{return new URL(u,location.href).href}catch{return null}};
