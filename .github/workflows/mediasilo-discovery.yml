@@ -42,7 +42,7 @@ jobs:
           
           function addMedia(url,ctx){
             if(!url||!/^https?:/i.test(url))return;
-            if(/\\.(mp4|m3u8|mov|webm|m4v)([?#]|$)/i.test(url)||/cloudfront|mediasilo/i.test(url))mediaHits.push({url,ctx});
+            if(/\.(mp4|m3u8|mov|webm|m4v)([?#]|$)/i.test(url)||/cloudfront|mediasilo/i.test(url))mediaHits.push({url,ctx});
           }
           function addFolder(id,name,parentId,url){
             if(!id)return;
@@ -100,16 +100,16 @@ jobs:
             });
           
             for(const v of d.videos)addMedia(v.src,item.url);
-            const folderId=(item.url.match(/\\/f\\/([^/?#]+)/i)||[])[1]||item.url;
+            const folderId=(item.url.match(/\/f\/([^/?#]+)/i)||[])[1]||item.url;
             addFolder(folderId,item.name||d.title||'root',item.parentId,item.url);
             const folder=folders.find(f=>f.folderId===folderId);
             for(const a of d.links){
               if(!a.href||!a.href.startsWith(origin))continue;
-              if(/\\/f\\//i.test(a.href)&&!visited.has(a.href)&&!queued.has(a.href)){
+              if(/\/f\//i.test(a.href)&&!visited.has(a.href)&&!queued.has(a.href)){
                 queued.add(a.href);
                 queue.push({url:a.href,parentId:folderId,name:a.text||a.aria||a.testid||'folder'});
               }
-              if(/\\/asset\\//i.test(a.href)||/\\/a\\//i.test(a.href)){
+              if(/\/asset\//i.test(a.href)||/\/a\//i.test(a.href)){
                 upsertAsset({assetId:(a.href.match(/([0-9a-f]{8}-[0-9a-f-]{27,})/i)||[])[1]||null,fileName:a.text||null,title:a.text||null,size:null,duration:null,resolution:null,folder:folder?.name||'root',assetUrl:a.href,directMediaUrl:null});
               }
             }
