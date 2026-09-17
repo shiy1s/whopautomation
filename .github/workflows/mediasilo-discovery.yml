@@ -155,6 +155,7 @@ jobs:
           
           NODE
           node --check discover.mjs
+          node --check discover.mjs
           node discover.mjs
       - name: Validate discovery artifact
         run: |
