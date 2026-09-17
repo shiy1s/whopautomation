@@ -26,131 +26,131 @@ jobs:
         run: |
           cat > discover.mjs <<'NODE'
                     import { chromium } from 'playwright';
-import fs from 'node:fs';
-
-const reviewUrl=process.env.REVIEW_URL;
-if(!reviewUrl)throw new Error('REVIEW_URL missing');
-const origin=new URL(reviewUrl).origin;
-const assets=[];
-const folders=[];
-const visited=new Set();
-const queued=new Set([reviewUrl]);
-const queue=[{url:reviewUrl,parentId:null,name:'root'}];
-const mediaHits=[];
-const jsonHits=[];
-const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
-
-function addMedia(url,ctx){
-  if(!url||!/^https?:/i.test(url))return;
-  if(/\\.(mp4|m3u8|mov|webm|m4v)([?#]|$)/i.test(url)||/cloudfront|mediasilo/i.test(url))mediaHits.push({url,ctx});
-}
-function addFolder(id,name,parentId,url){
-  if(!id)return;
-  if(folders.some(f=>f.folderId===id))return;
-  folders.push({folderId:id,name:name||'folder',parentId:parentId??null,url:url||null,assetCount:0});
-}
-function upsertAsset(a){
-  if(!a?.assetUrl&&!a?.assetId)return;
-  const key=a.assetId||a.assetUrl;
-  const i=assets.findIndex(x=>(x.assetId||x.assetUrl)===key);
-  if(i<0){assets.push(a);return;}
-  const clean=Object.fromEntries(Object.entries(a).filter(([,v])=>v!==null&&v!==undefined&&v!==''));
-  assets[i]={...assets[i],...clean};
-}
-function save(complete=false){
-  fs.writeFileSync('mediasilo-discovery.json',JSON.stringify({assets,folders,complete,mediaUrls:[...new Set(mediaHits.map(x=>x.url))],networkJson:jsonHits.slice(-200),visitedPages:[...visited],pageCount:visited.size,assetCount:assets.length,generatedAt:new Date().toISOString()},null,2));
-}
-
-const browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'],timeout:60000});
-const context=await browser.newContext({viewport:{width:1440,height:900},ignoreHTTPSErrors:true});
-context.on('response',async(res)=>{
-  try{
-    const u=res.url();
-    addMedia(u,'network');
-    const ct=res.headers()['content-type']||'';
-    if(!ct.includes('json'))return;
-    const t=await res.text();
-    if(!/asset|folder|derivative|media/i.test(t))return;
-    jsonHits.push({url:u,body:t.slice(0,30000)});
-    fs.appendFileSync('mediasilo-network.log',u+'\\n          '+t.slice(0,30000)+'\\n          ');
-  }catch{}
-});
-const page=await context.newPage();
-page.on('request',(req)=>addMedia(req.url(),'request'));
-page.on('response',(res)=>addMedia(res.url(),'response'));
-
-while(queue.length){
-  const item=queue.shift();
-  if(visited.has(item.url))continue;
-  visited.add(item.url);
-  console.log('VISIT',item.url);
-  try{await page.goto(item.url,{waitUntil:'domcontentloaded',timeout:60000});}
-  catch(e){console.log('NAV_ERROR',e.message);}
-  await sleep(5000);
-
-  const d=await page.evaluate(()=>{
-    const abs=(u)=>{try{return new URL(u,location.href).href}catch{return null}};
-    const els=[...document.querySelectorAll('a[href],button,[role="link"],[data-testid],video,source')];
-    return{
-      title:document.title,
-      url:location.href,
-      links:els.map(a=>({href:abs(a.getAttribute('href')),text:(a.textContent||'').trim(),aria:a.getAttribute('aria-label')||'',testid:a.getAttribute('data-testid')||'',tag:a.tagName})),
-      videos:[...document.querySelectorAll('video')].map(v=>({src:v.currentSrc||v.src||null,duration:Number.isFinite(v.duration)?v.duration:null,width:v.videoWidth||null,height:v.videoHeight||null}))
-    };
-  });
-
-  for(const v of d.videos)addMedia(v.src,item.url);
-  const folderId=(item.url.match(/\\/f\\/([^/?#]+)/i)||[])[1]||item.url;
-  addFolder(folderId,item.name||d.title||'root',item.parentId,item.url);
-  const folder=folders.find(f=>f.folderId===folderId);
-  for(const a of d.links){
-    if(!a.href||!a.href.startsWith(origin))continue;
-    if(/\\/f\\//i.test(a.href)&&!visited.has(a.href)&&!queued.has(a.href)){
-      queued.add(a.href);
-      queue.push({url:a.href,parentId:folderId,name:a.text||a.aria||a.testid||'folder'});
-    }
-    if(/\\/asset\\//i.test(a.href)||/\\/a\\//i.test(a.href)){
-      upsertAsset({assetId:(a.href.match(/([0-9a-f]{8}-[0-9a-f-]{27,})/i)||[])[1]||null,fileName:a.text||null,title:a.text||null,size:null,duration:null,resolution:null,folder:folder?.name||'root',assetUrl:a.href,directMediaUrl:null});
-    }
-  }
-  if(folder)folder.assetCount=assets.filter(a=>a.folder===folder.name).length;
-  save(false);
-}
-
-for(const h of jsonHits){
-  try{
-    const root=JSON.parse(h.body);
-    const walk=(v,parentFolder=null)=>{
-      if(Array.isArray(v)){for(const x of v)walk(x,parentFolder);return;}
-      if(!v||typeof v!=='object')return;
-      const id=v.id||v.assetId||null;
-      const name=v.name||v.title||v.fileName||null;
-      const type=String(v.type||'').toLowerCase();
-      const isAsset=Boolean((v.fileName||v.derivatives||v.duration||v.assetUrl)&&id);
-      const isFolder=Boolean((v.folderId||type==='folder'||type==='directory')&&(name||id));
-      if(isFolder)addFolder(id,name,parentFolder,h.url);
-      if(isAsset){
-        const folderName=v.folderName||v.folder?.name||null;
-        const dims=v.dimensions;
-        const resolution=v.resolution??(dims?(String(dims.width||'')+'x'+String(dims.height||'')):null);
-        upsertAsset({assetId:id,fileName:v.fileName||null,title:v.title||v.name||null,size:v.size??v.fileSize??null,duration:v.duration??null,resolution,folder:folderName||parentFolder||'root',assetUrl:v.url||v.assetUrl||null,directMediaUrl:v.directMediaUrl||null});
-        for(const der of (Array.isArray(v.derivatives)?v.derivatives:[]))if(der?.url)addMedia(der.url,'json');
-      }
-      for(const val of Object.values(v))walk(val,parentFolder);
-    };
-    walk(root,null);
-  }catch(e){console.log('JSON_PARSE_ERROR',e.message);}
-}
-
-for(const a of assets){
-  if(a.directMediaUrl)continue;
-  const candidates=mediaHits.filter(m=>m.ctx===a.assetUrl||/download|derivative|media/i.test(m.url));
-  if(candidates[0])a.directMediaUrl=candidates[0].url;
-}
-for(const f of folders)f.assetCount=assets.filter(a=>a.folder===f.name||a.folder===f.folderId).length;
-save(true);
-await browser.close();
-
+          import fs from 'node:fs';
+          
+          const reviewUrl=process.env.REVIEW_URL;
+          if(!reviewUrl)throw new Error('REVIEW_URL missing');
+          const origin=new URL(reviewUrl).origin;
+          const assets=[];
+          const folders=[];
+          const visited=new Set();
+          const queued=new Set([reviewUrl]);
+          const queue=[{url:reviewUrl,parentId:null,name:'root'}];
+          const mediaHits=[];
+          const jsonHits=[];
+          const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
+          
+          function addMedia(url,ctx){
+            if(!url||!/^https?:/i.test(url))return;
+            if(/\\.(mp4|m3u8|mov|webm|m4v)([?#]|$)/i.test(url)||/cloudfront|mediasilo/i.test(url))mediaHits.push({url,ctx});
+          }
+          function addFolder(id,name,parentId,url){
+            if(!id)return;
+            if(folders.some(f=>f.folderId===id))return;
+            folders.push({folderId:id,name:name||'folder',parentId:parentId??null,url:url||null,assetCount:0});
+          }
+          function upsertAsset(a){
+            if(!a?.assetUrl&&!a?.assetId)return;
+            const key=a.assetId||a.assetUrl;
+            const i=assets.findIndex(x=>(x.assetId||x.assetUrl)===key);
+            if(i<0){assets.push(a);return;}
+            const clean=Object.fromEntries(Object.entries(a).filter(([,v])=>v!==null&&v!==undefined&&v!==''));
+            assets[i]={...assets[i],...clean};
+          }
+          function save(complete=false){
+            fs.writeFileSync('mediasilo-discovery.json',JSON.stringify({assets,folders,complete,mediaUrls:[...new Set(mediaHits.map(x=>x.url))],networkJson:jsonHits.slice(-200),visitedPages:[...visited],pageCount:visited.size,assetCount:assets.length,generatedAt:new Date().toISOString()},null,2));
+          }
+          
+          const browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'],timeout:60000});
+          const context=await browser.newContext({viewport:{width:1440,height:900},ignoreHTTPSErrors:true});
+          context.on('response',async(res)=>{
+            try{
+              const u=res.url();
+              addMedia(u,'network');
+              const ct=res.headers()['content-type']||'';
+              if(!ct.includes('json'))return;
+              const t=await res.text();
+              if(!/asset|folder|derivative|media/i.test(t))return;
+              jsonHits.push({url:u,body:t.slice(0,30000)});
+              fs.appendFileSync('mediasilo-network.log',u+'\\n          '+t.slice(0,30000)+'\\n          ');
+            }catch{}
+          });
+          const page=await context.newPage();
+          page.on('request',(req)=>addMedia(req.url(),'request'));
+          page.on('response',(res)=>addMedia(res.url(),'response'));
+          
+          while(queue.length){
+            const item=queue.shift();
+            if(visited.has(item.url))continue;
+            visited.add(item.url);
+            console.log('VISIT',item.url);
+            try{await page.goto(item.url,{waitUntil:'domcontentloaded',timeout:60000});}
+            catch(e){console.log('NAV_ERROR',e.message);}
+            await sleep(5000);
+          
+            const d=await page.evaluate(()=>{
+              const abs=(u)=>{try{return new URL(u,location.href).href}catch{return null}};
+              const els=[...document.querySelectorAll('a[href],button,[role="link"],[data-testid],video,source')];
+              return{
+                title:document.title,
+                url:location.href,
+                links:els.map(a=>({href:abs(a.getAttribute('href')),text:(a.textContent||'').trim(),aria:a.getAttribute('aria-label')||'',testid:a.getAttribute('data-testid')||'',tag:a.tagName})),
+                videos:[...document.querySelectorAll('video')].map(v=>({src:v.currentSrc||v.src||null,duration:Number.isFinite(v.duration)?v.duration:null,width:v.videoWidth||null,height:v.videoHeight||null}))
+              };
+            });
+          
+            for(const v of d.videos)addMedia(v.src,item.url);
+            const folderId=(item.url.match(/\\/f\\/([^/?#]+)/i)||[])[1]||item.url;
+            addFolder(folderId,item.name||d.title||'root',item.parentId,item.url);
+            const folder=folders.find(f=>f.folderId===folderId);
+            for(const a of d.links){
+              if(!a.href||!a.href.startsWith(origin))continue;
+              if(/\\/f\\//i.test(a.href)&&!visited.has(a.href)&&!queued.has(a.href)){
+                queued.add(a.href);
+                queue.push({url:a.href,parentId:folderId,name:a.text||a.aria||a.testid||'folder'});
+              }
+              if(/\\/asset\\//i.test(a.href)||/\\/a\\//i.test(a.href)){
+                upsertAsset({assetId:(a.href.match(/([0-9a-f]{8}-[0-9a-f-]{27,})/i)||[])[1]||null,fileName:a.text||null,title:a.text||null,size:null,duration:null,resolution:null,folder:folder?.name||'root',assetUrl:a.href,directMediaUrl:null});
+              }
+            }
+            if(folder)folder.assetCount=assets.filter(a=>a.folder===folder.name).length;
+            save(false);
+          }
+          
+          for(const h of jsonHits){
+            try{
+              const root=JSON.parse(h.body);
+              const walk=(v,parentFolder=null)=>{
+                if(Array.isArray(v)){for(const x of v)walk(x,parentFolder);return;}
+                if(!v||typeof v!=='object')return;
+                const id=v.id||v.assetId||null;
+                const name=v.name||v.title||v.fileName||null;
+                const type=String(v.type||'').toLowerCase();
+                const isAsset=Boolean((v.fileName||v.derivatives||v.duration||v.assetUrl)&&id);
+                const isFolder=Boolean((v.folderId||type==='folder'||type==='directory')&&(name||id));
+                if(isFolder)addFolder(id,name,parentFolder,h.url);
+                if(isAsset){
+                  const folderName=v.folderName||v.folder?.name||null;
+                  const dims=v.dimensions;
+                  const resolution=v.resolution??(dims?(String(dims.width||'')+'x'+String(dims.height||'')):null);
+                  upsertAsset({assetId:id,fileName:v.fileName||null,title:v.title||v.name||null,size:v.size??v.fileSize??null,duration:v.duration??null,resolution,folder:folderName||parentFolder||'root',assetUrl:v.url||v.assetUrl||null,directMediaUrl:v.directMediaUrl||null});
+                  for(const der of (Array.isArray(v.derivatives)?v.derivatives:[]))if(der?.url)addMedia(der.url,'json');
+                }
+                for(const val of Object.values(v))walk(val,parentFolder);
+              };
+              walk(root,null);
+            }catch(e){console.log('JSON_PARSE_ERROR',e.message);}
+          }
+          
+          for(const a of assets){
+            if(a.directMediaUrl)continue;
+            const candidates=mediaHits.filter(m=>m.ctx===a.assetUrl||/download|derivative|media/i.test(m.url));
+            if(candidates[0])a.directMediaUrl=candidates[0].url;
+          }
+          for(const f of folders)f.assetCount=assets.filter(a=>a.folder===f.name||a.folder===f.folderId).length;
+          save(true);
+          await browser.close();
+          
           NODE
           node --check discover.mjs
           node discover.mjs
