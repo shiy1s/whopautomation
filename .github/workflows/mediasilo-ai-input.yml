@@ -1,5 +1,5 @@
 name: MediaSilo AI Input Worker
-"on":
+on:
   workflow_dispatch:
     inputs:
       review_url:
