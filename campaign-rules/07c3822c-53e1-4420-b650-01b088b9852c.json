@@ -1,0 +1,147 @@
+{
+  "schemaVersion": "3.0",
+  "generatedAt": "2026-09-19T09:33:44.240Z",
+  "campaignId": "07c3822c-53e1-4420-b650-01b088b9852c",
+  "campaignName": "Call of Duty — RICOCHET Enforcement Clipping",
+  "sourceDocumentUrl": "https://docs.google.com/document/d/1o314F33BzYZ5gFX0TxIt1kcboePCxCoCws0Ro6thKtA/edit?usp=sharing",
+  "officialContentFolderUrl": "https://app.mediasilo.com/review/6a91d42a1c9dd13bd6636b14",
+  "rules": {
+    "schemaVersion": "3.0",
+    "source": "campaign_brief",
+    "sourceFormat": "google_docs_export_txt",
+    "campaignId": "07c3822c-53e1-4420-b650-01b088b9852c",
+    "campaignName": "Call of Duty — RICOCHET Enforcement Clipping",
+    "sourceDocumentUrl": "https://docs.google.com/document/d/1o314F33BzYZ5gFX0TxIt1kcboePCxCoCws0Ro6thKtA/edit?usp=sharing",
+    "rawText": "Call of Duty - RICOCHET Enforcement Clipping\n✔ You do not need a dedicated page for this campaign to participate, you can post on any page\n WHAT TO DO\nPost clips amplifying Call of Duty's newest RICOCHET Anti-Cheat update. Use the provided footage and images to show how RICOCHET is cracking down on cheat providers and sellers.\nOfficial content folder\n\n⚠️ Do NOT use footage from any source outside the official content folder. Clips from unlisted content will be rejected immediately.\n \n\n TAGGING REQUIREMENT (REQUIRED)\n✔ TikTok: tag @Callofduty\n✔ Instagram: tag @Callofduty\n✔ YouTube Shorts: tag @Callofduty\n\n LOGO REQUIREMENT (REQUIRED)\nWatermark your clip with the official Call of Duty logo provided below. The logo must stay visible for the entire video.\nDownload the logo file\n\n CAPTION GUIDELINES (OPTIONAL)\nYou don't have to use exact wording, just make sure your caption gives context on today's RICOCHET Anti-Cheat update. A shorter, snappier version in your own words is fine.\nReference recap (use as-is or shorten in your own words):\nToday, Call of Duty shared a RICOCHET Anti-Cheat update detailing its continued fight against cheating beyond the match. The update highlights how teams are targeting the developers and sellers behind cheating products, including a recent takedown of Elocarry in Ohio during the Closed Beta.\nTo date, RICOCHET has disrupted more than 375 cheat reseller operations, issued more than 80 cease and desist demands, and shut down more than 30 vendors, with litigation to follow when necessary.\nThe update also recaps Beta Weekend 1, where millions of matches were played, infection rates were lower, hardware bans were harder to evade, and time to action improved. New detections were deployed throughout the weekend, while the team continues to monitor livestreams, adapt protections, and take action during Open Beta Weekend 2.\n \n\n FTC DISCLOSURE (REQUIRED)\nEvery post MUST include one of the following disclosures somewhere in the caption:\n#Ad #Advertisement #Sponsored\n✔ Must appear alone on its own separate line\n✔ Must be the first hashtag or element after the post text\n✔ Up to 3 additional hashtags allowed, but they must relate to the content\n✔ Must not be buried in a paragraph, must be clear and conspicuous\n✔ Must be in the same font, font size, and color as the rest of the caption\n\n ON-SCREEN TEXT (REQUIRED)\nUse one of the following lines relatively word for word as your on-screen text:\n✔ \"Real footage of a Call of Duty cheat provider being served a legal notice\"\n✔ \"Call of Duty continues to shut down cheat providers\"\n✔ \"Bodycam footage of Cease and Desist being served to a Call of Duty Cheat Provider\"\nText must be clear and readable. Aesthetic fonts are fine as long as legible.\n\n EDITING GUIDELINES\nBackground music is allowed. You can add music as long as the original content's audio is still clearly audible and not drowned out.\n\n REQUIREMENTS\nPOST SPECS\n✔ Download and post ONLY content from the official content folder linked above\n✔ Logo watermark must be visible for the entire clip\n✔ High-quality posts only, no blurry or low-effort content\n✔ Video must be AT LEAST 10 seconds long\n✔ English content only\n✔ Post must stay live for 30 days minimum\nPERFORMANCE\n✔ Minimum 0.20% engagement rate (1,000 views = minimum 2 likes)\n✔ Likes must be visible, hidden likes = automatic rejection\n✔ Page audience should primarily be Tier 1-2 countries (30%+ Tier 3 may be removed)\n✔ No NSFW content\n✔ By participating you agree to make your post FTC compliant\n\n NOT ALLOWED\nCONTENT\n✖ Content from any source not in the official content folder\n✖ Low-quality or lazy uploads\n✖ NSFW, violent, or controversial content\n✖ Directly stealing/reposting other creators' content as your own, all posts must be original edits\nENGAGEMENT FRAUD\n✖ Bait posting, posting random viral content just to farm views, posts must be relevant to the campaign\n✖ Spam posting, do not copy the same video across multiple accounts, post fresh content on each page\n✖ Story boosting, posting the content to your story to generate views, story views do not count and will get you banned\n✖ Paid boosting or video promoting of any kind, using TikTok/Instagram promote tools or paid ads will result in a permanent ban from Clipping Culture\n✖ Posting the same video more than 5 times across your pages, spread content out, don't oversaturate\nPOST VIOLATIONS\n✖ Removing the post before 30 days\n✖ Hidden likes\n✖ Removing or covering the required logo watermark\n✖ Missing the required @Callofduty tag\nQuestions about this campaign? Contact the Clipping Culture team, not the client. We manage this campaign and are here to help.",
+    "content": {
+      "officialFootageOnly": true,
+      "externalFootageForbidden": true,
+      "topic": {
+        "ricochetRequired": true,
+        "campaignTopic": "RICOCHET Anti-Cheat enforcement"
+      }
+    },
+    "platforms": {
+      "youtubeShorts": {
+        "required": true,
+        "accountTag": "@Callofduty"
+      },
+      "tiktok": {
+        "required": true,
+        "accountTag": "@Callofduty"
+      },
+      "instagram": {
+        "required": true,
+        "accountTag": "@Callofduty"
+      }
+    },
+    "branding": {
+      "logoRequired": true,
+      "logoMustRemainVisible": true
+    },
+    "disclosure": {
+      "required": true,
+      "options": [
+        "#Ad",
+        "#Advertisement",
+        "#Sponsored"
+      ],
+      "selected": "#Ad",
+      "placement": "separate_line",
+      "firstElement": true
+    },
+    "onScreenText": {
+      "required": true,
+      "requiredLines": [
+        "Real footage of a Call of Duty cheat provider being served a legal notice",
+        "Call of Duty continues to shut down cheat providers",
+        "Bodycam footage of Cease and Desist being served to a Call of Duty Cheat Provider"
+      ],
+      "readable": true
+    },
+    "video": {
+      "minimumDurationSeconds": 10,
+      "maximumDurationSeconds": null,
+      "englishOnly": true,
+      "highQualityOnly": true
+    },
+    "audio": {
+      "backgroundMusicAllowed": true,
+      "originalAudioMustRemainAudible": true
+    },
+    "originality": {
+      "originalEditRequired": true,
+      "repostsForbidden": true
+    },
+    "safety": {
+      "nsfwForbidden": true,
+      "violentContentForbidden": true
+    },
+    "publishing": {
+      "liveDurationDays": 30,
+      "visibleLikesRequired": true,
+      "paidBoostingForbidden": true,
+      "storyPostsForbidden": true,
+      "spamForbidden": true,
+      "duplicatePostingForbidden": true
+    },
+    "audience": {
+      "minimumEngagementRate": 0.2,
+      "tier1Tier2AudienceRequired": true,
+      "maxTier3AudiencePercentage": 30
+    },
+    "assetSource": {
+      "officialContentFolderUrl": "https://app.mediasilo.com/review/6a91d42a1c9dd13bd6636b14"
+    },
+    "extraction": {
+      "extractedAt": "2026-09-19T09:33:43.485Z",
+      "characterCount": 4651,
+      "lineCount": 67
+    }
+  },
+  "evidence": [
+    {
+      "rule": "officialContentFolderUrl",
+      "value": null,
+      "evidence": ""
+    },
+    {
+      "rule": "youtubeShorts.accountTag",
+      "value": "@Callofduty",
+      "evidence": "✔ YouTube Shorts: tag @Callofduty"
+    },
+    {
+      "rule": "branding.logoRequired",
+      "value": true,
+      "evidence": "LOGO REQUIREMENT (REQUIRED)"
+    },
+    {
+      "rule": "disclosure.selected",
+      "value": "#Ad",
+      "evidence": "#Ad #Advertisement #Sponsored"
+    },
+    {
+      "rule": "onScreenText.required",
+      "value": true,
+      "evidence": "ON-SCREEN TEXT (REQUIRED)"
+    },
+    {
+      "rule": "video.minimumDurationSeconds",
+      "value": 10,
+      "evidence": "✔ Video must be AT LEAST 10 seconds long"
+    },
+    {
+      "rule": "video.englishOnly",
+      "value": true,
+      "evidence": "✔ English content only"
+    }
+  ],
+  "validation": {
+    "status": "valid",
+    "errors": [],
+    "validatedAt": "2026-09-19T09:33:43.892Z",
+    "ruleCount": 7,
+    "evidenceBacked": true,
+    "officialContentFolderVerifiedFrom": "campaignBriefLinks.officialContentFolder"
+  }
+}
