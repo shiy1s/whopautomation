@@ -1,51 +1,198 @@
-(async()=>{
-const fs=require('fs'),cp=require('child_process'),path=require('path');
-const {chromium}=require('playwright');
-const inv=JSON.parse(Buffer.from(process.env.INVENTORY_JSON_B64,'base64').toString('utf8'));
-const assets=(inv.assets||[]).filter(a=>a.type==='video'||/\.(mp4|mov|m4v|webm)$/i.test(String(a.fileName||'')));
-if(assets.length<2)throw new Error('Phase 4 requires both verified video assets.');
-const browser=await chromium.launch({headless:true});const context=await browser.newContext({ignoreHTTPSErrors:true});const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-const add=(s,v)=>{if(typeof v!=='string')return;let x=v.replace(/\u0026/g,'&').replace(/\\/g,'/');try{x=decodeURIComponent(x)}catch{}if(/^https?:\/\//.test(x)&&/\.(mp4|m3u8|mov|m4v|webm)(?:[?#]|$)/i.test(x))s.add(x)};
-const results=[];
-for(const a of assets){const dir=path.join('phase4-input',a.assetId),fd=path.join(dir,'frames');fs.mkdirSync(fd,{recursive:true});const page=await context.newPage(),set=new Set(); const collect=o=>{if(typeof o==='string'){add(set,o);try{const u=new URL(o);if(!/app\.mediasilo\.com|api\.mediasilo\.com/i.test(u.hostname)&&(/amazonaws|cloudfront|s3|media|stream|download/i.test(u.hostname+u.pathname)||u.search))set.add(o)}catch{} }else if(o&&typeof o==='object'){for(const v of Object.values(o))collect(v)}}; page.on('response',async r=>{add(set,r.url()); try{const ct=r.headers()['content-type']||''; if(ct.includes('json')) collect(await r.json())}catch{}});try{const rid=inv.source.reviewId;const api='https://api.mediasilo.com/v3/quicklinks/'+rid+'/folders/'+a.folderId+'/assets?_page=1&_pageSize=50&_sortBy=_default&_sort=asc';const ar=await context.request.get(api,{failOnStatusCode:false,timeout:60000});if(ar.ok())collect(await ar.json())}catch{}try{const parts=a.assetUrl.split('/'+a.assetId+'/f/');const folderUrl=parts.length===2?parts[0]+'/f/'+parts[1]:a.assetUrl;await page.goto(folderUrl,{waitUntil:'domcontentloaded',timeout:90000});await sleep(5000);try{const link=page.locator('a[href*="'+a.assetId+'"]').first();if(await link.count())await link.click({timeout:8000})}catch{}try{const txt=page.getByText(a.fileName,{exact:true}).first();if(await txt.count())await txt.click({timeout:8000})}catch{}await sleep(7000); try{const btn=page.getByRole('button',{name:/play/i});if(await btn.count())await btn.first().click({timeout:5000})}catch{} try{for(const f of page.frames()){const btn=f.getByRole('button',{name:/play/i});if(await btn.count())await btn.first().click({timeout:3000}).catch(()=>{})}}catch{} await sleep(5000);(await page.evaluate(()=>Array.from(document.querySelectorAll('video,source')).flatMap(e=>[e.currentSrc,e.src].filter(Boolean)))).forEach(x=>add(set,x));(await page.evaluate(()=>performance.getEntriesByType('resource').map(e=>e.name))).forEach(x=>add(set,x));const candidates=[...set].filter(x=>{try{const u=new URL(x);return !/app\.mediasilo\.com|api\.mediasilo\.com/i.test(u.hostname)}catch{return false}});let u=null;const mp=path.join(dir,'source.mp4');if(!u){const ids=new Set();const walk2=v=>{if(typeof v==='string')return;if(Array.isArray(v)){for(const x of v)walk2(x);return}if(v&&typeof v==='object')for(const [k,x] of Object.entries(v)){if(/video.?id/i.test(k)&&typeof x==='string')ids.add(x);walk2(x)}};
-for(const endpoint of ['https://api.mediasilo.com/v3/quicklinks/'+inv.source.reviewId+'/assets/'+a.assetId,'https://api.mediasilo.com/v3/quicklinks/'+inv.source.reviewId+'/assets/'+a.assetId+'/versions']){try{const rr=await context.request.get(endpoint,{failOnStatusCode:false,timeout:60000});if(rr.ok())walk2(await rr.json())}catch{}}
-const names=['master.m3u8','manifest.m3u8','manifest','master','index.m3u8','index'];
-const cookie=(await context.cookies()).map(c=>c.name+'='+c.value).join('; ');
-for(const id of ids){if(id===a.assetId)continue;for(const name of names){const candidate='https://api.mediasilo.com/v3/assets/'+a.assetId+'/'+id+'/'+name;try{const rr=await context.request.get(candidate,{failOnStatusCode:false,timeout:60000});const ct=(rr.headers()['content-type']||'').toLowerCase(),body=await rr.text();if(rr.ok()&&(ct.includes('mpegurl')||body.includes('#EXTM3U'))){const abs=body.split(/\r?\n/).map(line=>{const s=line.trim();if(!s||s.startsWith('#'))return line;try{return new URL(s,candidate).href}catch{return line}}).join('\n');const mf=path.join(dir,'source.m3u8');fs.writeFileSync(mf,abs);cp.execFileSync('ffmpeg',['-y','-loglevel','error','-headers','Referer: '+inv.source.reviewUrl+'\r\nCookie: '+cookie,'-i',mf,'-c','copy',mp]);if(fs.existsSync(mp)&&fs.statSync(mp).size>100000){u=candidate;break}}}catch{}}if(u)break}}if(!u){const ids=new Set();const walk2=v=>{if(typeof v==='string')return;if(Array.isArray(v)){for(const x of v)walk2(x);return}if(v&&typeof v==='object')for(const [k,x] of Object.entries(v)){if(/video.?id/i.test(k)&&typeof x==='string')ids.add(x);walk2(x)}};
-for(const endpoint of ['https://api.mediasilo.com/v3/quicklinks/'+inv.source.reviewId+'/assets/'+a.assetId,'https://api.mediasilo.com/v3/quicklinks/'+inv.source.reviewId+'/assets/'+a.assetId+'/versions']){try{const rr=await context.request.get(endpoint,{failOnStatusCode:false,timeout:60000});if(rr.ok())walk2(await rr.json())}catch{}}
-const names=['master.m3u8','manifest.m3u8','manifest','master','index.m3u8','index'];
-const cookie=(await context.cookies()).map(c=>c.name+'='+c.value).join('; ');
-for(const id of ids){if(id===a.assetId)continue;for(const name of names){const candidate='https://api.mediasilo.com/v3/assets/'+a.assetId+'/'+id+'/'+name;try{const rr=await context.request.get(candidate,{failOnStatusCode:false,timeout:60000});const ct=(rr.headers()['content-type']||'').toLowerCase(),body=await rr.text();if(rr.ok()&&(ct.includes('mpegurl')||body.includes('#EXTM3U'))){const abs=body.split(/\r?\n/).map(line=>{const s=line.trim();if(!s||s.startsWith('#'))return line;try{return new URL(s,candidate).href}catch{return line}}).join('\n');const mf=path.join(dir,'source.m3u8');fs.writeFileSync(mf,abs);cp.execFileSync('ffmpeg',['-y','-loglevel','error','-headers','Referer: '+inv.source.reviewUrl+'\r\nCookie: '+cookie,'-i',mf,'-c','copy',mp]);if(fs.existsSync(mp)&&fs.statSync(mp).size>100000){u=candidate;break}}}catch{}}if(u)break}}if(!u)for(const c of candidates){try{if(/\.m3u8(?:[?#]|$)/i.test(c)){cp.execFileSync('ffmpeg',['-y','-loglevel','error','-i',c,'-c','copy',mp]);if(fs.existsSync(mp)&&fs.statSync(mp).size>100000){u=c;break}else{try{fs.unlinkSync(mp)}catch{}}}else{const r=await context.request.get(c,{failOnStatusCode:false,timeout:120000});if(!r.ok())continue;const ct=(r.headers()['content-type']||'').toLowerCase();const body=await r.body();if(ct.startsWith('video/')||ct.includes('mpegurl')||body.length>100000){fs.writeFileSync(mp,body);if(fs.statSync(mp).size>100000){u=c;break}}}}catch{try{if(fs.existsSync(mp))fs.unlinkSync(mp)}catch{}}}if(!u){
- const zipUrl='https://api.mediasilo.com/v3/quicklinks/'+inv.source.reviewId+'/assets/'+a.assetId+'/download/zip';
- try{
-  const zr=await context.request.get(zipUrl,{failOnStatusCode:false,timeout:180000});
-  const zct=(zr.headers()['content-type']||'').toLowerCase();
-  const zb=await zr.body();
-  if(zr.ok()&&(zct.includes('zip')||zb.slice(0,4).toString('binary')==='PK\x03\x04')){
-   const zp=path.join(dir,'source.zip');fs.writeFileSync(zp,zb);
-   cp.execFileSync('unzip',['-o',zp,'-d',dir]);
-   const files=cp.execFileSync('vind',[dir,'-type','f'],{encoding:'utf8'}).trim().split(/\r?\n/).filter(Boolean);
-   const media=files.find(f=>/\.(mp4|mov|m4v|webm)$/i.test(f)&&!f.endsWith('source.mp4'));
-   if(media){fs.copyFileSync(media,mp);if(fs.statSync(mp).size>100000)u=zipUrl}
+(async () => {
+  const fs = require('fs');
+  const cp = require('child_process');
+  const path = require('path');
+  const { chromium } = require('playwright');
+
+  const inv = JSON.parse(Buffer.from(process.env.INVENTORY_JSON_B64, 'base64').toString('utf8'));
+  const assets = (inv.assets || []).filter(a => a.type === 'video' || /\.(mp4|mov|m4v|webm)$/i.test(String(a.fileName || '')));
+  if (assets.length !== 2) throw new Error('PHASE4_SOURCE_VALIDATION_FAILED: expected 2 verified video assets, found ' + assets.length);
+
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const results = [];
+
+  const normalize = v => {
+    if (typeof v !== 'string' || !v) return null;
+    let x = v.replace(/\\u0026/g, '&').trim();
+    try { x = decodeURIComponent(x); } catch {}
+    return /^https?:\/\//i.test(x) ? x : null;
+  };
+
+  const isMediaType = ct => /^(video\/|audio\/)/i.test(ct) || /mpegurl|quicktime|webm/i.test(ct);
+  const isMediaUrl = u => /\.(mp4|m3u8|mov|m4v|webm)(?:[?#]|$)/i.test(u || '');
+
+  const collectStrings = (value, out) => {
+    if (typeof value === 'string') {
+      const u = normalize(value);
+      if (u && (isMediaUrl(u) || /media|video|stream|download|cdn/i.test(u))) out.add(u);
+    } else if (Array.isArray(value)) {
+      for (const v of value) collectStrings(v, out);
+    } else if (value && typeof value === 'object') {
+      for (const v of Object.values(value)) collectStrings(v, out);
+    }
+  };
+
+  for (const a of assets) {
+    const dir = path.join('phase4-input', a.assetId);
+    const frameDir = path.join(dir, 'frames');
+    fs.mkdirSync(frameDir, { recursive: true });
+
+    const page = await context.newPage();
+    const candidates = new Map();
+    const directMediaBodies = [];
+
+    const record = (url, ct, source) => {
+      const u = normalize(url);
+      if (!u) return;
+      const type = String(ct || '').toLowerCase();
+      if (isMediaUrl(u) || isMediaType(type)) candidates.set(u, { url: u, contentType: type, source });
+    };
+
+    page.on('response', async response => {
+      try {
+        const headers = response.headers();
+        const ct = String(headers['content-type'] || '').toLowerCase();
+        record(response.url(), ct, 'network-response');
+        if (ct.startsWith('video/') && !/\.m3u8/i.test(response.url())) {
+          directMediaBodies.push({ url: response.url(), contentType: ct, response });
+        }
+        if (ct.includes('json')) {
+          try { collectStrings(await response.json(), new Set()); } catch {}
+        }
+      } catch {}
+    });
+
+    try {
+      // Open the actual asset view through its parent folder so the player is mounted.
+      const marker = '/' + a.assetId + '/f/';
+      const parts = String(a.assetUrl || '').split(marker);
+      const folderUrl = parts.length === 2 ? parts[0] + '/f/' + parts[1] : a.assetUrl;
+      await page.goto(folderUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
+      await sleep(4000);
+
+      try {
+        const link = page.locator('a[href*="' + a.assetId + '"]').first();
+        if (await link.count()) await link.click({ timeout: 8000 });
+      } catch {}
+      try {
+        const text = page.getByText(a.fileName, { exact: true }).first();
+        if (await text.count()) await text.click({ timeout: 8000 });
+      } catch {}
+      await sleep(5000);
+
+      try {
+        const play = page.getByRole('button', { name: /play/i }).first();
+        if (await play.count()) await play.click({ timeout: 5000 });
+      } catch {}
+      await sleep(5000);
+
+      const dom = await page.evaluate(() => Array.from(document.querySelectorAll('video,source')).map(e => ({
+        src: e.src || '',
+        currentSrc: e.currentSrc || '',
+        type: e.getAttribute('type') || ''
+      })));
+      for (const m of dom) { record(m.src, m.type, 'dom-src'); record(m.currentSrc, m.type, 'dom-currentSrc'); }
+
+      for (const u of await page.evaluate(() => performance.getEntriesByType('resource').map(e => e.name))) record(u, '', 'performance');
+
+      const mp = path.join(dir, 'source.mp4');
+      const cookie = (await context.cookies()).map(c => c.name + '=' + c.value).join('; ');
+      const headers = { Referer: inv.source.reviewUrl, Cookie: cookie };
+
+      // Direct media response bodies are the most authoritative source when MediaSilo uses signed CDN URLs.
+      for (const item of directMediaBodies) {
+        try {
+          const body = await item.response.body();
+          if (body.length > 100000) {
+            fs.writeFileSync(mp, body);
+            break;
+          }
+        } catch {}
+      }
+
+      let sourceUrl = directMediaBodies.length ? directMediaBodies[0].url : null;
+
+      // Otherwise download a discovered HLS or direct-media URL with the authenticated browser context.
+      if (!fs.existsSync(mp) || fs.statSync(mp).size < 100000) {
+        for (const item of [...candidates.values()]) {
+          try {
+            if (/\.m3u8(?:[?#]|$)/i.test(item.url) || /mpegurl/i.test(item.contentType)) {
+              cp.execFileSync('ffmpeg', [
+                '-y', '-loglevel', 'error',
+                '-headers', 'Referer: ' + inv.source.reviewUrl + '\r\nCookie: ' + cookie,
+                '-i', item.url, '-c', 'copy', mp
+              ]);
+            } else {
+              const r = await context.request.get(item.url, { headers, failOnStatusCode: false, timeout: 120000 });
+              if (r.ok()) {
+                const body = await r.body();
+                const ct = String(r.headers()['content-type'] || '').toLowerCase();
+                if (body.length > 100000 && (ct.startsWith('video/') || isMediaUrl(item.url))) fs.writeFileSync(mp, body);
+              }
+            }
+            if (fs.existsSync(mp) && fs.statSync(mp).size > 100000) {
+              sourceUrl = item.url;
+              break;
+            }
+          } catch {}
+        }
+      }
+
+      if (!fs.existsSync(mp) || fs.statSync(mp).size < 100000) {
+        throw new Error('No verified playable media response for ' + a.assetId + '; candidates=' + candidates.size);
+      }
+
+      const duration = Number(cp.execFileSync('ffprobe', [
+        '-v','error','-show_entries','format=duration',
+        '-of','default=noprint_wrappers=1:nokey=1', mp
+      ], { encoding: 'utf8' }).trim());
+      if (!Number.isFinite(duration) || duration < 10) throw new Error('Invalid downloaded duration: ' + duration);
+
+      const frames = [];
+      for (let i = 0; i < 12; i++) {
+        const t = Math.min(duration - 0.25, Math.max(0.25, (duration - 0.5) * (i / 11) + 0.25));
+        const ts = t.toFixed(3);
+        const file = path.join(frameDir, 'frame_' + String(i + 1).padStart(2,'0') + '_' + ts.replace('.','p') + 's.jpg');
+        cp.execFileSync('ffmpeg', ['-y','-loglevel','error','-ss',String(t),'-i',mp,'-frames:v','1','-q:v','2',file]);
+        if (!fs.existsSync(file) || fs.statSync(file).size < 1000) throw new Error('Frame extraction failed at ' + ts + 's');
+        frames.push({ index:i+1, timestampSeconds:Number(ts), path:file, sizeBytes:fs.statSync(file).size });
+      }
+
+      results.push({
+        assetId:a.assetId,
+        fileName:a.fileName,
+        inventoryDurationSeconds:Number(a.duration || 0)/1000,
+        durationSeconds:duration,
+        sourceMediaUrl:sourceUrl,
+        candidateCount:candidates.size,
+        frameCount:frames.length,
+        frames
+      });
+    } finally {
+      await page.close();
+    }
   }
- }catch{}
-}
-if(!u&&!fs.existsTync(mp)){
- try{
-  await page.goto(a.assetUrl,{waitUntil:'domcontloaded',timeout:90000});
-  await page.waitForTimeout(6000);
-  const downloadPromise=page.waitForEvent('download',{timeout:15000}).catch(()=>null);
-  const buttons=page.getByRole('button',{name:/download/i});
-  const links=page.locator('a[download],a[href*="/download"]');
-  if(await buttons.count())await buttons.first().click();
-  else if(await links.count())await links.first().click();
-  const dl=await downloadPromise;
-  if(dl){await dl.saveAs(mp);if(fs.existsSync(mp)&&fs.statSync(mp).size>100000)u=dl.url()||a.assetUrl}
- }catch{}
-}if(!u){ const debug={assetId:a.assetId,candidates:[...candidates],checkedAt:new Date().toISOString()};
-try{const du='https://api.mediasilo.com/v3/quicklinks/'+inv.source.reviewId+'/assets/'+a.assetId+'/download/zip';const dr=await context.request.get(du,{failOnStatusCode:false,timeout:60000});debug.zipProbe={status:dr.status(),contentType:(dr.headers()['content-type']||''),length:(await dr.body()).length}}catch(e){debug.zirProbe={error:String(e.message||e)}}
- fs.writeFileSync(path.join(dir,'resolver-debug.json'),JSON.stringify(debug,null,2));
- console.error('PHASE4_MEDIA_RESOLUTION_DEBUG '+JSON.stringify(debug));
- throw new Error('No verified playable media response for '+a.assetId);
-}const d=Number(cp.execFileSync('ffprobe',['-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1',mp],{encoding:'utf8'}).trim());if(!Number.isFinite(d)||d<10)throw new Error('Invalid duration');const frames=[];for(let i=0;i<12;i++){const t=Math.min(d-.25,Math.max(.25,(d-.5)*(i/11)+.25)),s=t.toFixed(3),f=path.join(fd,'frame_'+String(i+1).padStart(2,'0')+'_'+s.replace('.','p')+'s.jpg');cp.execFileSync('ffmpeg',['-y','-loglevel','error','-ss',String(t),'-i',mp,'-frames:v','1','-q:v','2',f]);if(!fs.existsSync(f)||fs.statSync(f).size<1000)throw new Error('Frame extraction failed');frames.push({index:i+1,timestampSeconds:Number(s),path:f})}results.push({assetId:a.assetId,fileName:a.fileName,durationSeconds:d,sourceMediaUrl:u,frameCount:12,frames})}finally{await page.close()}}await browser.close();if(results.length!==assets.length)throw new Error('Phase 4 input coverage incomplete.');fs.writeFileSync('phase4-input/phase4-input-manifest.json',JSON.stringify({schemaVersion:'1.0',complete:true,videoAssetCount:results.length,results,generatedAt:new Date().toISOString()},null,2));console.log('PHASE4_INPUT_VALIDATION_PASS assets='+results.length+' frames='+results.reduce((n,x)=>n+x.frameCount,0));
-})().catch(e=>{console.error(e);process.exit(1);});
+
+  await browser.close();
+
+  const totalFrames = results.reduce((n,r) => n + r.frameCount, 0);
+  if (results.length !== assets.length || totalFrames !== 24) {
+    throw new Error('PHASE4_INPUT_VALIDATION_FAILED: assets=' + results.length + ' frames=' + totalFrames);
+  }
+
+  fs.writeFileSync('phase4-input/phase4-input-manifest.json', JSON.stringify({
+    schemaVersion:'1.1',
+    complete:true,
+    videoAssetCount:results.length,
+    frameCount:totalFrames,
+    results,
+    generatedAt:new Date().toISOString()
+  }, null, 2));
+
+  console.log('PHASE4_INPUT_VALIDATION_PASS assets=' + results.length + ' frames=' + totalFrames);
+})().catch(e => {
+  console.error(e);
+  process.exit(1);
+});
