@@ -69,6 +69,8 @@
       const marker = '/' + a.assetId + '/f/';
       const parts = String(a.assetUrl || '').split(marker);
       const folderUrl = parts.length === 2 ? parts[0] + '/f/' + parts[1] : a.assetUrl;
+      await page.goto(inv.source.reviewUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
+      await sleep(2500);
       await page.goto(a.assetUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
       await sleep(4000);
 
