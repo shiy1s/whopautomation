@@ -5,11 +5,11 @@
   "source": {
     "reviewUrl": "https://app.mediasilo.com/review/6a91d42a1c9dd13bd6636b14",
     "reviewId": "6a91d42a1c9dd13bd6636b14",
-    "discoveryArtifactGeneratedAt": "2026-09-19T09:15:17.069Z",
-    "capturedAt": "2026-09-19T09:15:28.307Z",
-    "githubRunId": 35433958875,
-    "githubRunNumber": 66,
-    "githubHeadSha": "68ac822ce6feece4c4adf5467b8187ab7d87eff8",
+    "discoveryArtifactGeneratedAt": "2026-09-19T09:20:43.364Z",
+    "capturedAt": "2026-09-19T09:20:56.743Z",
+    "githubRunId": 35434288703,
+    "githubRunNumber": 67,
+    "githubHeadSha": "5bbd91328ff2675ec22b7c1300322271bd6ec192",
     "collectionMethod": "Playwright browser network inspection",
     "browserbase": false
   },
