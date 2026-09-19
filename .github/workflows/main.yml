@@ -22,6 +22,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Enforce campaign execution guard
+        run: |
+          set -euo pipefail
+          # This workflow creates review artifacts only. It has no publishing step.
+          python campaign_guard.py --mode dry-run
+
       - name: Download official campaign video
         run: |
           set -euo pipefail

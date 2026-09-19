@@ -3,7 +3,10 @@
     "name": "Call of Duty - RICOCHET Enforcement Clipping",
     "campaign_url": "https://contentrewards.com/discover/07c3822c-53e1-4420-b650-01b088e9852c",
     "brand": "Call of Duty",
-    "required_account": "@Callofduty"
+    "required_account": "@Callofduty",
+    "status": "inactive",
+    "test_fixture": true,
+    "status_note": "Budget exhausted. Rendering and analysis are permitted only as dry-run validation; no live publishing is authorized."
   },
 
   "eligibility": {

@@ -32,6 +32,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Enforce campaign execution guard
+        run: |
+          set -euo pipefail
+          # Preflight may inspect the fixture, but must not authorize a live post.
+          python campaign_guard.py --mode dry-run
+
 
       # ============================================================
       # 2. INSTALL DEPENDENCIES
