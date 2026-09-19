@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "2.0",
+  "phase": "2_full_inventory",
+  "complete": true,
+  "source": {
+    "reviewUrl": "https://app.mediasilo.com/review/6a91d42a1c9dd13bd6636b14",
+    "reviewId": "6a91d42a1c9dd13bd6636b14",
+    "discoveryArtifactGeneratedAt": "2026-09-19T08:28:03.178Z",
+    "githubRunId": 35432001516,
+    "collectionMethod": "Playwright browser network inspection",
+    "browserbase": false
+  },
+  "folders": [
+    {
+      "folderId": "f45bac3a-41e7-4bb5-8d38-ff5881dfd8ae",
+      "name": "RICOCHET ENFORCEMENT",
+      "parentId": null,
+      "visited": true
+    },
+    {
+      "folderId": "9fec6c4c-2fe4-40ca-867b-309a2ecfc0e7",
+      "name": "Background",
+      "parentId": "f45bac3a-41e7-4bb5-8d38-ff5881dfd8ae",
+      "visited": true
+    },
+    {
+      "folderId": "d5ed1cb7-d291-4712-b1b4-1f77e6d65c25",
+      "name": "LOGOS",
+      "parentId": "f45bac3a-41e7-4bb5-8d38-ff5881dfd8ae",
+      "visited": true
+    }
+  ],
+  "visitedPages": [
+    "https://app.mediasilo.com/review/6a91d42a1c9dd13bd6636b14",
+    "https://app.mediasilo.com/review/6a91d42a1c9dd13bd6636b14/f/f45bac3a-41e7-4bb5-8d38-ff5881dfd8ae",
+    "https://app.mediasilo.com/review/6a91d42a1c9dd13bd6636b14/f/9fec6c4c-2fe4-40ca-867b-309a2ecfc0e7",
+    "https://app.mediasilo.com/review/6a91d42a1c9dd13bd6636b14/f/d5ed1cb7-d291-4712-b1b4-1f77e6d65c25"
+  ],
+  "assets": [
+    {
+      "assetId": "ba143cfa-fc91-4808-a3f5-c67decb14a68",
+      "fileName": "BG.png",
+      "type": "image",
+      "folder": "Background",
+      "folderId": "9fec6c4c-2fe4-40ca-867b-309a2ecfc0e7",
+      "assetUrl": "https://app.mediasilo.com/review/6a91d42a1c9dd13bd6636b14/ba143cfa-fc91-4808-a3f5-c67decb14a68/f/9fec6c4c-2fe4-40ca-867b-309a2ecfc0e7",
+      "provenance": "browser_authenticated_network_api"
+    },
+    {
+      "assetId": "ad36969d-a6b1-421b-8af2-14c0c37839dc",
+      "fileName": "Call_of_Duty_Wordmark_Stacked_CMYK_Black.png",
+      "type": "image",
+      "folder": "LOGOS",
+      "folderId": "d5ed1cb7-d291-4712-b1b4-1f77e6d65c25",
+      "assetUrl": "https://app.mediasilo.com/review/6a91d42a1c9dd13bd6636b14/ad36969d-a6b1-421b-8af2-14c0c37839dc/f/d5ed1cb7-d291-4712-b1b4-1f77e6d65c25",
+      "provenance": "browser_authenticated_network_api"
+    },
+    {
+      "assetId": "0c91bfe6-ed4e-403e-a774-cbd619e3b077",
+      "fileName": "Call_of_Duty_Wordmark_Stacked_CMYK_White.png",
+      "type": "image",
+      "folder": "LOGOS",
+      "folderId": "d5ed1cb7-d291-4712-b1b4-1f77e6d65c25",
+      "assetUrl": "https://app.mediasilo.com/review/6a91d42a1c9dd13bd6636b14/0c91bfe6-ed4e-403e-a774-cbd619e3b077/f/d5ed1cb7-d291-4712-b1b4-1f77e6d65c25",
+      "provenance": "browser_authenticated_network_api"
+    },
+    {
+      "assetId": "a443ff94-0e17-436b-89af-c6ff8fc4f6b3",
+      "fileName": "Ricochet_White_ital B.png",
+      "type": "image",
+      "folder": "LOGOS",
+      "folderId": "d5ed1cb7-d291-4712-b1b4-1f77e6d65c25",
+      "assetUrl": "https://app.mediasilo.com/review/6a91d42a1c9dd13bd6636b14/a443ff94-0e17-436b-89af-c6ff8fc4f6b3/f/d5ed1cb7-d291-4712-b1b4-1f77e6d65c25",
+      "provenance": "browser_authenticated_network_api"
+    },
+    {
+      "assetId": "b6667f50-75f2-4ad1-b505-50b09869a76e",
+      "fileName": "RICOCHETvideo.mp4",
+      "type": "video",
+      "folder": "RICOCHET ENFORCEMENT",
+      "folderId": "f45bac3a-41e7-4bb5-8d38-ff5881dfd8ae",
+      "assetUrl": "https://app.mediasilo.com/review/6a91d42a1c9dd13bd6636b14/b6667f50-75f2-4ad1-b505-50b09869a76e/f/f45bac3a-41e7-4bb5-8d38-ff5881dfd8ae",
+      "provenance": "browser_authenticated_network_api"
+    },
+    {
+      "assetId": "5f3b3df2-3652-4ac5-bf84-2a45798cd401",
+      "fileName": "Richochet_V05_9x16_Final.mp4",
+      "type": "video",
+      "folder": "RICOCHET ENFORCEMENT",
+      "folderId": "f45bac3a-41e7-4bb5-8d38-ff5881dfd8ae",
+      "assetUrl": "https://app.mediasilo.com/review/6a91d42a1c9dd13bd6636b14/5f3b3df2-3652-4ac5-bf84-2a45798cd401/f/f45bac3a-41e7-4bb5-8d38-ff5881dfd8ae",
+      "provenance": "browser_authenticated_network_api"
+    }
+  ],
+  "assetCount": 6,
+  "assetTypes": [
+    "image",
+    "video"
+  ],
+  "coverage": {
+    "apiAssetResponseCount": 5,
+    "uniqueAssetCount": 6,
+    "baselineAssetsRecovered": true,
+    "unvisitedFolders": []
+  }
+}
