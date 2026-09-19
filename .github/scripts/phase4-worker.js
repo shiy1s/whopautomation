@@ -31,7 +31,8 @@ for(const id of ids){if(id===a.assetId)continue;for(const name of names){const c
  }catch{}
 }
 if(!u){
- const debug={assetId:a.assetId,candidates:[...candidates],apiJsonUrls:apiJson.map(x=>x.url),checkedAt:new Date().toISOString()};
+ const debug={assetId:a.assetId,candidates:[...candidates],checkedAt:new Date().toISOString()};
+try{const du='https://api.mediasilo.com/v3/quicklinks/'+inv.source.reviewId+'/assets/'+a.assetId+'/download/zip';const dr=await context.request.get(du,{failOnStatusCode:false,timeout:60000});debug.zipProbe={status:dr.status(),contentType:(dr.headers()['content-type']||''),length:(await dr.body()).length}}catch(e){debug.zirProbe={error:String(e.message||e)}}
  fs.writeFileSync(path.join(dir,'resolver-debug.json'),JSON.stringify(debug,null,2));
  console.error('PHASE4_MEDIA_RESOLUTION_DEBUG '+JSON.stringify(debug));
  throw new Error('No verified playable media response for '+a.assetId);
