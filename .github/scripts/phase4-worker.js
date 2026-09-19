@@ -50,6 +50,8 @@
       if (isMediaUrl(u) || isMediaType(type)) candidates.set(u, { url: u, contentType: type, source });
     };
 
+    page.on('request', request => { try { const u = request.url(); const rt = request.resourceType(); if (rt === 'media' || isMediaUrl(u) || u.includes(a.assetId)) record(u, '', 'network-request'); } catch {} });
+
     page.on('response', async response => {
       try {
         const headers = response.headers();
@@ -67,7 +69,7 @@
       const marker = '/' + a.assetId + '/f/';
       const parts = String(a.assetUrl || '').split(marker);
       const folderUrl = parts.length === 2 ? parts[0] + '/f/' + parts[1] : a.assetUrl;
-      await page.goto(folderUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
+      await page.goto(a.assetUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
       await sleep(4000);
 
       try {
