@@ -29,7 +29,7 @@ jobs:
           INVENTORY_JSON_B64: ${{ inputs.discovery_json }}
         run: node .github/scripts/phase4-worker.js
       - name: Validate Phase 4 artifact
-        run: node -e "const fs=require(\'fs\');const p=\'phase4-input/phase4-input-manifest.json\';if(!fs.existsSync(p))throw new Error(\'Manifest missing\');const m=JSON.parse(fs.readFileSync(p));if(m.complete!==true||m.videoAssetCount!==2||m.results.some(x=>x.frameCount!==12))throw new Error(\'Phase 4 manifest validation failed\');if(m.frameCount!==24)throw new Error(\'Phase 4 frame coverage must equal 24\');console.log(\'PHASE4_ARTIFACT_VALIDATION_PASS\');"
+        run: node -e "const fs=require(\'fs\');const p=\'phase4-input/phase4-input-manifest.json\';if(!fs.existsSync(p))throw new Error(\'Manifest missing\');const m=JSON.parse(fs.readFileSync(p));if(m.complete!==true||m.videoAssetCount!==2||m.results.some(x=>x.frameCount!==12)||m.frameCount!==24)throw new Error(\'Phase 4 manifest validation failed\');console.log(\'PHASE4_ARTIFACT_VALIDATION_PASS\');"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
