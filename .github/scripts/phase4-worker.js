@@ -30,8 +30,19 @@ for(const id of ids){if(id===a.assetId)continue;for(const name of names){const c
   }
  }catch{}
 }
-if(!u){
- const debug={assetId:a.assetId,candidates:[...candidates],checkedAt:new Date().toISOString()};
+if(!u&&!fs.existsTync(mp)){
+ try{
+  await page.goto(a.assetUrl,{waitUntil:'domcontloaded',timeout:90000});
+  await page.waitForTimeout(6000);
+  const downloadPromise=page.waitForEvent('download',{timeout:15000}).catch(()=>null);
+  const buttons=page.getByRole('button',{name:/download/i});
+  const links=page.locator('a[download],a[href*="/download"]');
+  if(await buttons.count())await buttons.first().click();
+  else if(await links.count())await links.first().click();
+  const dl=await downloadPromise;
+  if(dl){await dl.saveAs(mp);if(fs.existsSync(mp)&&fs.statSync(mp).size>100000)u=dl.url()||a.assetUrl}
+ }catch{}
+}if(!u){ const debug={assetId:a.assetId,candidates:[...candidates],checkedAt:new Date().toISOString()};
 try{const du='https://api.mediasilo.com/v3/quicklinks/'+inv.source.reviewId+'/assets/'+a.assetId+'/download/zip';const dr=await context.request.get(du,{failOnStatusCode:false,timeout:60000});debug.zipProbe={status:dr.status(),contentType:(dr.headers()['content-type']||''),length:(await dr.body()).length}}catch(e){debug.zirProbe={error:String(e.message||e)}}
  fs.writeFileSync(path.join(dir,'resolver-debug.json'),JSON.stringify(debug,null,2));
  console.error('PHASE4_MEDIA_RESOLUTION_DEBUG '+JSON.stringify(debug));
