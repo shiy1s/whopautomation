@@ -31,7 +31,7 @@ for(const id of ids){if(id===a.assetId)continue;for(const name of names){const c
  }catch{}
 }
 if(!u){
- const debug={assetId:a.assetId,candidates:[...candidates],videoResponses,apiJsonUrls:apiJson.map(x=>x.url),checkedAt:new Date().toISOString()};
+ const debug={assetId:a.assetId,candidates:[...candidates],apiJsonUrls:apiJson.map(x=>x.url),checkedAt:new Date().toISOString()};
  fs.writeFileSync(path.join(dir,'resolver-debug.json'),JSON.stringify(debug,null,2));
  console.error('PHASE4_MEDIA_RESOLUTION_DEBUG '+JSON.stringify(debug));
  throw new Error('No verified playable media response for '+a.assetId);
