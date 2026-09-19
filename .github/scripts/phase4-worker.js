@@ -58,9 +58,7 @@
         if (ct.startsWith('video/') && !/\.m3u8/i.test(response.url())) {
           directMediaBodies.push({ url: response.url(), contentType: ct, response });
         }
-        if (ct.includes('json')) {
-          try { collectStrings(await response.json(), new Set()); } catch {}
-        }
+        if (ct.includes('json')) { try { const out = new Set(); collectStrings(await response.json(), out); for (const u of out) record(u, ct, 'json'); } catch {} }
       } catch {}
     });
 
