@@ -1,6 +1,6 @@
 {
   "schemaVersion": "3.0",
-  "generatedAt": "2026-09-19T09:33:44.240Z",
+  "generatedAt": "2026-09-19T09:34:12.724Z",
   "campaignId": "07c3822c-53e1-4420-b650-01b088b9852c",
   "campaignName": "Call of Duty — RICOCHET Enforcement Clipping",
   "sourceDocumentUrl": "https://docs.google.com/document/d/1o314F33BzYZ5gFX0TxIt1kcboePCxCoCws0Ro6thKtA/edit?usp=sharing",
@@ -39,6 +39,11 @@
       "logoRequired": true,
       "logoMustRemainVisible": true
     },
+    "caption": {
+      "optional": true,
+      "mustGiveContext": true,
+      "referenceRecap": "Reference recap (use as-is or shorten in your own words):\nToday, Call of Duty shared a RICOCHET Anti-Cheat update detailing its continued fight against cheating beyond the match. The update highlights how teams are targeting the developers and sellers behind cheating products, including a recent takedown of Elocarry in Ohio during the Closed Beta.\nTo date, RICOCHET has disrupted more than 375 cheat reseller operations, issued more than 80 cease and desist demands, and shut down more than 30 vendors, with litigation to follow when necessary.\nThe update also recaps Beta Weekend 1, where millions of matches were played, infection rates were lower, hardware bans were harder to evade, and time to action improved. New detections were deployed throughout the weekend, while the team continues to monitor livestreams, adapt protections, and take action during Open Beta Weekend 2."
+    },
     "disclosure": {
       "required": true,
       "options": [
@@ -48,7 +53,9 @@
       ],
       "selected": "#Ad",
       "placement": "separate_line",
-      "firstElement": true
+      "firstElement": true,
+      "maxAdditionalHashtags": 3,
+      "sameStyleRequired": true
     },
     "onScreenText": {
       "required": true,
@@ -75,7 +82,8 @@
     },
     "safety": {
       "nsfwForbidden": true,
-      "violentContentForbidden": true
+      "violentContentForbidden": true,
+      "controversialContentForbidden": true
     },
     "publishing": {
       "liveDurationDays": 30,
@@ -94,7 +102,7 @@
       "officialContentFolderUrl": "https://app.mediasilo.com/review/6a91d42a1c9dd13bd6636b14"
     },
     "extraction": {
-      "extractedAt": "2026-09-19T09:33:43.485Z",
+      "extractedAt": "2026-09-19T09:34:11.995Z",
       "characterCount": 4651,
       "lineCount": 67
     }
@@ -102,44 +110,51 @@
   "evidence": [
     {
       "rule": "officialContentFolderUrl",
-      "value": null,
-      "evidence": ""
+      "value": "https://app.mediasilo.com/review/6a91d42a1c9dd13bd6636b14",
+      "evidence": "https://app.mediasilo.com/review/6a91d42a1c9dd13bd6636b14",
+      "source": "campaign_brief_html_link"
     },
     {
       "rule": "youtubeShorts.accountTag",
       "value": "@Callofduty",
-      "evidence": "✔ YouTube Shorts: tag @Callofduty"
+      "evidence": "✔ YouTube Shorts: tag @Callofduty",
+      "source": "campaign_brief_text"
     },
     {
       "rule": "branding.logoRequired",
       "value": true,
-      "evidence": "LOGO REQUIREMENT (REQUIRED)"
+      "evidence": "LOGO REQUIREMENT (REQUIRED)",
+      "source": "campaign_brief_text"
     },
     {
       "rule": "disclosure.selected",
       "value": "#Ad",
-      "evidence": "#Ad #Advertisement #Sponsored"
+      "evidence": "#Ad #Advertisement #Sponsored",
+      "source": "campaign_brief_text"
     },
     {
       "rule": "onScreenText.required",
       "value": true,
-      "evidence": "ON-SCREEN TEXT (REQUIRED)"
+      "evidence": "ON-SCREEN TEXT (REQUIRED)",
+      "source": "campaign_brief_text"
     },
     {
       "rule": "video.minimumDurationSeconds",
       "value": 10,
-      "evidence": "✔ Video must be AT LEAST 10 seconds long"
+      "evidence": "✔ Video must be AT LEAST 10 seconds long",
+      "source": "campaign_brief_text"
     },
     {
       "rule": "video.englishOnly",
       "value": true,
-      "evidence": "✔ English content only"
+      "evidence": "✔ English content only",
+      "source": "campaign_brief_text"
     }
   ],
   "validation": {
     "status": "valid",
     "errors": [],
-    "validatedAt": "2026-09-19T09:33:43.892Z",
+    "validatedAt": "2026-09-19T09:34:12.383Z",
     "ruleCount": 7,
     "evidenceBacked": true,
     "officialContentFolderVerifiedFrom": "campaignBriefLinks.officialContentFolder"
