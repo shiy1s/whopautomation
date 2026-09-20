@@ -10,7 +10,6 @@ on:
         description: Verified discovery seed JSON in base64
         required: true
         type: string
-
 jobs:
   phase4:
     runs-on: ubuntu-latest
