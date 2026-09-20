@@ -60,6 +60,8 @@ const networkLog = [];
 
     page.on('requestfailed', request => { try { phase4Diagnostics.events.push({type:'requestfailed',url:request.url(),resourceType:request.resourceType(),failure:request.failure(),at:new Date().toISOString()}); } catch {} });
 
+    page.on('requestfailed', request => { try { console.error('PHASE4_REQUEST_FAILED', JSON.stringify({url:request.url(),resourceType:request.resourceType(),failure:request.failure()})); } catch {} });
+
     page.on('response', async response => {
       try {
         const headers = response.headers();
