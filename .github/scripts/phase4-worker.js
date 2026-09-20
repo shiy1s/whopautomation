@@ -24,7 +24,7 @@ const networkLog = [];
     return /^https?:\/\//i.test(x) ? x : null;
   };
 
-  const isMediaType = ct => /^(video\/|audio\/)/i.test(ct) || /mpegurl|quicktime|webm|octet-stream|mp2t/i.test(ct);
+  const isMediaType = ct => /^(video\/|audio\/)/i.test(ct) || /mpegurl|quicktime|webm|mp2t/i.test(ct);
   const isMediaUrl = u => /\.(mp4|m3u8|mov|m4v|webm)(?:[?#]|$)/i.test(u || '');
 
   const collectStrings = (value, out) => {
