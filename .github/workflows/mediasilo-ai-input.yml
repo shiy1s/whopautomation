@@ -10,8 +10,9 @@ on:
         description: Verified discovery seed JSON in base64
         required: true
         type: string
+
 jobs:
-  discover:
+  phase4:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -29,11 +30,15 @@ jobs:
           INVENTORY_JSON_B64: ${{ inputs.discovery_json }}
         run: node .github/scripts/phase4-worker.js
       - name: Validate Phase 4 artifact
-        run: node -e "const fs=require(\'fs\');const p=\'phase4-input/phase4-input-manifest.json\';if(!fs.existsSync(p))throw new Error(\'Manifest missing\');const m=JSON.parse(fs.readFileSync(p));if(m.complete!==true||m.videoAssetCount!==2||m.results.some(x=>x.frameCount!==12)||m.frameCount!==24)throw new Error(\'Phase 4 manifest validation failed\');console.log(\'PHASE4_ARTIFACT_VALIDATION_PASS\');"
+        run: node -e "const fs=require('fs');const p='phase4-input/phase4-input-manifest.json';if(!fs.existsSync(p))throw new Error('Manifest missing');const m=JSON.parse(fs.readFileSync(p));if(m.complete!==true||m.videoAssetCount!==2||m.results.length!==2||m.results.some(x=>x.frameCount!==12)||m.frameCount!==24)throw new Error('Phase 4 manifest validation failed');console.log('PHASE4_ARTIFACT_VALIDATION_PASS');"
       - name: Upload Phase 4 evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: mediasilo-ai-input
-          path: |\n            phase4-input\n            mediasilo-network.log\n            mediasilo-debug.json
+          path: |
+            phase4-input
+            mediasilo-network.log
+            mediasilo-debug.json
           if-no-files-found: warn
+          retention-days: 7
