@@ -43,7 +43,12 @@ const networkLog = [];
   const bootstrapPage=await context.newPage();
   bootstrapPage.on('request', request => { try { const u=request.url(); if(u.startsWith('https://api.mediasilo.com/')) { const h=request.headers(); if(h['x-key']&&h['x-secret']) Object.assign(mediasiloApiHeaders,{'x-key':h['x-key'],'x-secret':h['x-secret']}); } } catch {} });
   await bootstrapPage.goto(inv.source.reviewUrl,{waitUntil:'domcontentloaded',timeout:90000});
-  await sleep(2500);
+  await sleep(1500);
+  const bootstrapVideo=assets.find(a=>a.type==='video');
+  if(bootstrapVideo&&bootstrapVideo.folderId){
+    await bootstrapPage.goto(inv.source.reviewUrl+'/f/'+bootstrapVideo.folderId,{waitUntil:'domcontentloaded',timeout:90000});
+    await sleep(3000);
+  }
   await bootstrapPage.close();
   if(!mediasiloApiHeaders['x-key']||!mediasiloApiHeaders['x-secret']) console.warn('PHASE4_AUTH_HEADERS_NOT_CAPTURED');
   
