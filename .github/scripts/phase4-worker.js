@@ -84,6 +84,7 @@ const networkLog = [];
       await page.goto(inv.source.reviewUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
       await sleep(2500);
       await page.goto(a.assetUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
+      let mediasiloApiHeaders={}; page.on('request', request => { try { const u=request.url(); if(u.startsWith('https://api.mediasilo.com/')) { const h=request.headers(); if(h['x-key']&&h['x-secret']) mediasiloApiHeaders={'x-key':h['x-key'],'x-secret':h['x-secret']}; } } catch {} });
       const apiCtx = page.context().request;
       const apiUrl = 'https://api.mediasilo.com/v3/quicklinks/' + inv.source.reviewId + '/assets/' + a.assetId;
       try {
