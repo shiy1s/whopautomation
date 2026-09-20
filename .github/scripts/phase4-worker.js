@@ -12,6 +12,8 @@
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const results = [];
+  const phase4Diagnostics = { startedAt: new Date().toISOString(), assets: [], network: [], failures: [], events: [] };
+  const networkLog = []; 
 
   const normalize = v => {
     if (typeof v !== 'string' || !v) return null;
@@ -20,7 +22,7 @@
     return /^https?:\/\//i.test(x) ? x : null;
   };
 
-  const isMediaType = ct => /^(video\/|audio\/)/i.test(ct) || /mpegurl|quicktime|webm/i.test(ct);
+  const isMediaType = ct => /^(video\/|audio\/)/i.test(ct) || /mpegurl|quicktime|webm|octet-stream|mp2t/i.test(ct);
   const isMediaUrl = u => /\.(mp4|m3u8|mov|m4v|webm)(?:[?#]|$)/i.test(u || '');
 
   const collectStrings = (value, out) => {
@@ -43,20 +45,25 @@
     const candidates = new Map();
     const directMediaBodies = [];
 
-    const record = (url, ct, source) => {
+    const record = (url, ct, source, meta = {}) => {
       const u = normalize(url);
       if (!u) return;
       const type = String(ct || '').toLowerCase();
-      if (isMediaUrl(u) || isMediaType(type)) candidates.set(u, { url: u, contentType: type, source });
+      const entry = { url: u, contentType: type, source, ...meta, capturedAt: new Date().toISOString() };
+      networkLog.push(entry);
+      if (isMediaUrl(u) || isMediaType(type)) candidates.set(u, entry);
     };
 
     page.on('request', request => { try { const u = request.url(); const rt = request.resourceType(); if (rt === 'media' || isMediaUrl(u) || u.includes(a.assetId)) record(u, '', 'network-request'); } catch {} });
+
+    page.on('requestfailed', request => { try { phase4Diagnostics.events.push({type:'requestfailed',url:request.url(),resourceType:request.resourceType(),failure:request.failure(),at:new Date().toISOString()}); } catch {} });
 
     page.on('response', async response => {
       try {
         const headers = response.headers();
         const ct = String(headers['content-type'] || '').toLowerCase();
-        record(response.url(), ct, 'network-response');
+        const contentLength = Number(headers['content-length'] || 0);
+        record(response.url(), ct, 'network-response', { status: response.status(), contentLength, contentRange: headers['content-range'] || null });
         if (ct.startsWith('video/') && !/\.m3u8/i.test(response.url())) {
           directMediaBodies.push({ url: response.url(), contentType: ct, response });
         }
@@ -98,6 +105,9 @@
       for (const m of dom) { record(m.src, m.type, 'dom-src'); record(m.currentSrc, m.type, 'dom-currentSrc'); }
 
       for (const u of await page.evaluate(() => performance.getEntriesByType('resource').map(e => e.name))) record(u, '', 'performance');
+
+      const frameState = page.frames().map(f => ({ url: f.url(), name: f.name() }));
+      phase4Diagnostics.assets.push({ assetId: a.assetId, fileName: a.fileName, assetUrl: a.assetUrl, pageUrl: page.url(), frames: frameState, dom, performanceResources: await page.evaluate(() => performance.getEntriesByType('resource').map(e => e.name)), candidateCount: candidates.size, candidates: Array.from(candidates.values()) });
 
       const mp = path.join(dir, 'source.mp4');
       const cookie = (await context.cookies()).map(c => c.name + '=' + c.value).join('; ');
@@ -184,6 +194,9 @@
     throw new Error('PHASE4_INPUT_VALIDATION_FAILED: assets=' + results.length + ' frames=' + totalFrames);
   }
 
+  fs.writeFileSync('mediasilo-network.log', networkLog.map(x => JSON.stringify(x)).join('\n') + '\n');
+  fs.writeFileSync('mediasilo-debug.json', JSON.stringify(phase4Diagnostics, null, 2));
+
   fs.writeFileSync('phase4-input/phase4-input-manifest.json', JSON.stringify({
     schemaVersion:'1.1',
     complete:true,
@@ -195,6 +208,7 @@
 
   console.log('PHASE4_INPUT_VALIDATION_PASS assets=' + results.length + ' frames=' + totalFrames);
 })().catch(e => {
+  try { phase4Diagnostics.failures.push({ message: String(e && e.message || e), stack: String(e && e.stack || '') }); phase4Diagnostics.finishedAt = new Date().toISOString(); fs.writeFileSync('mediasilo-network.log', networkLog.map(x => JSON.stringify(x)).join('\n') + '\n'); fs.writeFileSync('mediasilo-debug.json', JSON.stringify(phase4Diagnostics, null, 2)); } catch (diagErr) { console.error('PHASE4_DIAGNOSTICS_WRITE_FAILED', diagErr); }
   console.error(e);
   process.exit(1);
 });
