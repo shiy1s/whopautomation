@@ -81,20 +81,12 @@ const networkLog = [];
       const marker = '/' + a.assetId + '/f/';
       const parts = String(a.assetUrl || '').split(marker);
       const folderUrl = parts.length === 2 ? parts[0] + '/f/' + parts[1] : a.assetUrl;
-      const mediasiloApiHeaders={}; page.on('request', request => { try { const u=request.url(); if(u.startsWith('https://api.mediasilo.com/')) { const h=request.headers(); if(h['x-key']&&h['x-secret']) Object.assign(mediasiloApiHeaders,{'x-key':h['x-key'],'x-secret':h['x-secret']}); } } catch {} });
-      await page.goto(inv.source.reviewUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
-      await sleep(2500);
-      await page.goto(inv.source.reviewUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
-      await sleep(2500);
-      await page.goto(inv.source.reviewUrl + '/f/' + a.folderId, { waitUntil: 'domcontentloaded', timeout: 90000 });
-      await sleep(3500);
-      await page.goto(a.assetUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
-      let mediasiloApiHeaders={}; page.on('request', request => { try { const u=request.url(); if(u.startsWith('https://api.mediasilo.com/')) { const h=request.headers(); if(h['x-key']&&h['x-secret']) mediasiloApiHeaders={'x-key':h['x-key'],'x-secret':h['x-secret']}; } } catch {} });
-      const apiCtx = page.context().request;
+      const apiCtx=page.context().request;
       const apiUrl = 'https://api.mediasilo.com/v3/quicklinks/' + inv.source.reviewId + '/assets/' + a.assetId;
       try {
         const ar = await apiCtx.get(apiUrl, { headers: { Referer: inv.source.reviewUrl, Accept: 'application/json' }, timeout: 30000 });
-        const act = String(ar.headers()['content-type'] || '').toLowerCase();
+        coconst mediasiloApiHeaders={}; page.on('request', request => { try { const u=request.url(); if(u.startsWith('https://api.mediasilo.com/')) { const h=request.headers(); if(h['x-key']&&h['x-secret']) Object.assign(mediasiloApiHeaders,{'x-key':h['x-key'],'x-secret':h['x-secret']}); } } catch {} });
+      nst act = String(ar.headers()['content-type'] || '').toLowerCase();
         const body = await ar.text();
         console.log('PHASE4_API_FALLBACK', JSON.stringify({ assetId:a.assetId, url:apiUrl, status:ar.status(), contentType:act, bytes:body.length }));
         if (ar.ok() && body) {
