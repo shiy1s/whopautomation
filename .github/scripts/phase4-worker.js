@@ -41,7 +41,7 @@ const networkLog = [];
 
   const mediasiloApiHeaders={};
   const bootstrapPage=await context.newPage();
-  bootstrapPage.on('request', request => { try { const u=request.url(); if(u.startsWith('https://api.mediasilo.com/')) { const h=request.headers(); if(h['x-key']&&h['x-secret']) Object.assign(mediasiloApiHeaders,{'x-key':h['x-key'],'x-secret':h['x-secret']}); } } catch {} });
+  context.on('request', request => { try { const u=request.url(); if(u.startsWith('https://api.mediasilo.com/')) { const h=request.headers(); const picked={}; for(const k of ['x-key','x-secret','authorization','x-api-key']) if(h[k]) picked[k]=h[k]; if(picked['x-key']&&picked['x-secret']) Object.assign(mediasiloApiHeaders,{'x-key':picked['x-key'],'x-secret':picked['x-secret']}); } } catch {} });
   await bootstrapPage.goto(inv.source.reviewUrl,{waitUntil:'domcontentloaded',timeout:90000});
   await sleep(1500);
   const bootstrapVideo=assets.find(a=>a.type==='video');
