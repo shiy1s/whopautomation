@@ -1,3 +1,6 @@
+const phase4Diagnostics = { startedAt: new Date().toISOString(), assets: [], network: [], failures: [], events: [] };
+const networkLog = [];
+
 (async () => {
   const fs = require('fs');
   const cp = require('child_process');
@@ -12,8 +15,7 @@
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const results = [];
-  const phase4Diagnostics = { startedAt: new Date().toISOString(), assets: [], network: [], failures: [], events: [] };
-  const networkLog = []; 
+  
 
   const normalize = v => {
     if (typeof v !== 'string' || !v) return null;
@@ -153,7 +155,7 @@
       }
 
       if (!fs.existsSync(mp) || fs.statSync(mp).size < 100000) {
-        throw new Error('No verified playable media response for ' + a.assetId + '; candidates=' + candidates.size);
+        throw new Error('No verified playable media response for ' + a.assetId + '; candidates=' + JSON.stringify(Array.from(candidates.values())));
       }
 
       const duration = Number(cp.execFileSync('ffprobe', [
