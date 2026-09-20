@@ -1,3 +1,4 @@
+const fs = require('fs');
 const phase4Diagnostics = { startedAt: new Date().toISOString(), assets: [], network: [], failures: [], events: [] };
 const networkLog = [];
 
@@ -24,7 +25,7 @@ const networkLog = [];
     return /^https?:\/\//i.test(x) ? x : null;
   };
 
-  const isMediaType = ct => /^(video\/|audio\/)/i.test(ct) || /mpegurl|quicktime|webm|mp2t/i.test(ct);
+    const isMediaType = ct => /^(video\/|audio\/)/i.test(ct) || /mpegurl|quicktime|webm|mp2t/i.test(ct);
   const isMediaUrl = u => /\.(mp4|m3u8|mov|m4v|webm)(?:[?#]|$)/i.test(u || '');
 
   const collectStrings = (value, out) => {
@@ -83,6 +84,24 @@ const networkLog = [];
       await page.goto(inv.source.reviewUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
       await sleep(2500);
       await page.goto(a.assetUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
+      const apiCtx = page.context().request;
+      const apiUrl = 'https://api.mediasilo.com/v3/quicklinks/' + inv.source.reviewId + '/assets/' + a.assetId;
+      try {
+        const ar = await apiCtx.get(apiUrl, { headers: { Referer: inv.source.reviewUrl, Accept: 'application/json' }, timeout: 30000 });
+        const act = String(ar.headers()['content-type'] || '').toLowerCase();
+        const body = await ar.text();
+        console.log('PHASE4_API_FALLBACK', JSON.stringify({ assetId:a.assetId, url:apiUrl, status:ar.status(), contentType:act, bytes:body.length }));
+        if (ar.ok() && body) {
+          try {
+            const parsed = JSON.parse(body);
+            const discovered = new Set();
+            collectStrings(parsed, discovered);
+            for (const u of discovered) record(u, act, 'same-session-api', { status: ar.status() });
+          } catch {}
+        }
+      } catch (err) {
+        console.error('PHASE4_API_FALLBACK_FAILED', JSON.stringify({assetId:a.assetId,url:apiUrl,error:String(err && err.message || err)}));
+      }
       await sleep(4000);
 
       try {
