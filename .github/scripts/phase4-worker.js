@@ -12,7 +12,7 @@ const networkLog = [];
   const assets = (inv.assets || []).filter(a => a.type === 'video' || /\.(mp4|mov|m4v|webm)$/i.test(String(a.fileName || '')));
   if (assets.length !== 2) throw new Error('PHASE4_SOURCE_VALIDATION_FAILED: expected 2 verified video assets, found ' + assets.length);
 
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({headless:true,args:['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage']});
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const results = [];
@@ -81,6 +81,7 @@ const networkLog = [];
       const marker = '/' + a.assetId + '/f/';
       const parts = String(a.assetUrl || '').split(marker);
       const folderUrl = parts.length === 2 ? parts[0] + '/f/' + parts[1] : a.assetUrl;
+      const mediasiloApiHeaders={}; page.on('request', request => { try { const u=request.url(); if(u.startsWith('https://api.mediasilo.com/')) { const h=request.headers(); if(h['x-key']&&h['x-secret']) Object.assign(mediasiloApiHeaders,{'x-key':h['x-key'],'x-secret':h['x-secret']}); } } catch {} });
       await page.goto(inv.source.reviewUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
       await sleep(2500);
       await page.goto(inv.source.reviewUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
