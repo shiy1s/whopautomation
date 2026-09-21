@@ -11,6 +11,11 @@ const isMediaUrl = u => {
          /video\/|application\/(vnd\.apple\.mpegurl|x-mpegurl)/i.test(u);
 };
 
+const isMediaType = ct => {
+  if (!ct || typeof ct !== 'string') return false;
+  return /^(video\/|audio\/)/i.test(ct) || /mpegurl|quicktime|webm|mp2t/i.test(ct);
+};
+
 const collectStrings = (obj, out = new Set()) => {
   if (!obj) return out;
   if (typeof obj === 'string') {
@@ -23,7 +28,48 @@ const collectStrings = (obj, out = new Set()) => {
   return out;
 };
 
+const runFFprobe = filePath => {
+  try {
+    const cmd = `ffprobe -v error -show_entries format=duration,size,bit_rate -select_streams v:0 -show_entries stream=width,height,codec_name -of json "${filePath}"`;
+    const out = cp.execSync(cmd, { encoding: 'utf8' });
+    const data = JSON.parse(out);
+    const duration = parseFloat(data.format?.duration || 0);
+    const width = data.streams?.[0]?.width || 0;
+    const height = data.streams?.[0]?.height || 0;
+    const size = parseInt(data.format?.size || 0, 10);
+    return { valid: duration >= 10 && width > 0 && height > 0, duration, width, height, size, raw: data };
+  } catch (e) {
+    return { valid: false, error: e.message };
+  }
+};
+
+const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
+  fs.mkdirSync(outDir, { recursive: true });
+  const frames = [];
+  const step = duration / (frameCount + 1);
+  for (let i = 1; i <= frameCount; i++) {
+    const ts = (i * step).toFixed(2);
+    const frameName = `frame_${String(i).padStart(2, '0')}.jpg`;
+    const framePath = path.join(outDir, frameName);
+    const cmd = `ffmpeg -y -ss ${ts} -i "${mediaPath}" -vframes 1 -q:v 2 "${framePath}"`;
+    cp.execSync(cmd, { stdio: 'ignore' });
+    if (!fs.existsSync(framePath) || fs.statSync(framePath).size < 1000) {
+      throw new Error(`Failed to extract valid frame ${i} at timestamp ${ts}s`);
+    }
+    const stat = fs.statSync(framePath);
+    frames.push({
+      frameIndex: i,
+      fileName: frameName,
+      filePath: path.relative(path.resolve('phase4-input'), framePath).replace(/\\/g, '/'),
+      timestampSeconds: parseFloat(ts),
+      fileSizeBytes: stat.size
+    });
+  }
+  return frames;
+};
+
 (async () => {
+  console.log('=== Starting Phase 4 MediaSilo Real-Media Worker ===');
   const inputRaw = process.env.INVENTORY_JSON_B64
     ? Buffer.from(process.env.INVENTORY_JSON_B64, 'base64').toString('utf8')
     : fs.existsSync('mediasilo-inventory.json')
@@ -35,11 +81,13 @@ const collectStrings = (obj, out = new Set()) => {
 
   const assets = (inv.assets || []).filter(a => a.type === 'video');
   if (assets.length !== 2) {
-    throw new Error('Expected exactly 2 video assets, found ' + assets.length);
+    throw new Error('Expected exactly 2 video assets in inventory, found ' + assets.length);
   }
 
   const outDir = path.resolve('phase4-input');
+  const tmpMediaDir = path.resolve('.tmp-media');
   fs.mkdirSync(outDir, { recursive: true });
+  fs.mkdirSync(tmpMediaDir, { recursive: true });
 
   const networkLog = [];
   const phase4Diagnostics = {
@@ -60,24 +108,29 @@ const collectStrings = (obj, out = new Set()) => {
 
   const mediasiloApiHeaders = {};
 
-  // Network logging and credentials capture
   context.on('request', req => {
     const h = req.headers();
     if (h['x-key']) mediasiloApiHeaders['x-key'] = h['x-key'];
     if (h['x-secret']) mediasiloApiHeaders['x-secret'] = h['x-secret'];
   });
 
+  // Bootstrap review session to establish auth state
+  const reviewUrl = inv.source?.reviewUrl || 'https://app.mediasilo.com/review/6a91d42a1c9dd13bd6636b14';
+  console.log(`Bootstrapping review session at ${reviewUrl}...`);
+  const initPage = await context.newPage();
+  await initPage.goto(reviewUrl, { waitUntil: 'networkidle', timeout: 45000 }).catch(() => {});
+  await sleep(3000);
+  await initPage.close();
+
   const results = [];
 
   for (const a of assets) {
-    console.log(`Processing asset: ${a.fileName} (${a.assetId})`);
-    const assetDir = path.join(outDir, a.assetId);
-    const frameDir = path.join(assetDir, 'frames');
+    console.log(`\n--- Processing asset: ${a.fileName} (${a.assetId}) ---`);
+    const assetOutDir = path.join(outDir, a.assetId);
+    const frameDir = path.join(assetOutDir, 'frames');
     fs.mkdirSync(frameDir, { recursive: true });
 
     const candidates = new Map();
-    const directMediaBodies = [];
-
     const page = await context.newPage();
 
     page.on('response', async response => {
@@ -86,17 +139,15 @@ const collectStrings = (obj, out = new Set()) => {
         const url = response.url();
         networkLog.push({ url, status: response.status(), contentType: ct, assetId: a.assetId });
 
-        if (ct.startsWith('video/') || isMediaUrl(url)) {
+        if (isMediaType(ct) || isMediaUrl(url)) {
           candidates.set(url, { url, contentType: ct, source: 'network-response' });
-          if (ct.startsWith('video/') && !/\.m3u8/i.test(url)) {
-            directMediaBodies.push({ url, contentType: ct, response });
-          }
         }
 
         if (ct.includes('json')) {
           try {
+            const jsonBody = await response.json();
             const out = new Set();
-            collectStrings(await response.json(), out);
+            collectStrings(jsonBody, out);
             for (const u of out) {
               if (isMediaUrl(u)) candidates.set(u, { url: u, contentType: ct, source: 'json-body' });
             }
@@ -105,197 +156,120 @@ const collectStrings = (obj, out = new Set()) => {
       } catch {}
     });
 
-    try {
-      // Navigate directly to the asset URL
-      const targetUrl = a.assetUrl || `${inv.source.reviewUrl}/${a.assetId}`;
-      console.log(`Navigating to ${targetUrl}`);
-      await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 45000 }).catch(() => {});
-      await sleep(3000);
+    const targetUrl = a.assetUrl || `${reviewUrl}/${a.assetId}`;
+    console.log(`Navigating to target asset URL: ${targetUrl}`);
+    await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 45000 }).catch(() => {});
+    await sleep(4000);
 
-      // Try clicking play button if available
+    // If API fallback needed, query MediaSilo API with captured headers
+    if (candidates.size === 0 && mediasiloApiHeaders['x-key']) {
+      console.log('Attempting MediaSilo API fallback query...');
       try {
-        const playBtn = page.getByRole('button', { name: /play/i }).first();
-        if (await playBtn.count()) await playBtn.click({ timeout: 5000 });
-      } catch {}
-
-      // Click video container or thumbnail if present
-      try {
-        const videoEl = page.locator('video, .vjs-tech, .player').first();
-        if (await videoEl.count()) await videoEl.click({ timeout: 5000 });
-      } catch {}
-      await sleep(4000);
-
-      // Capture DOM video sources
-      const domSources = await page.evaluate(() => {
-        return Array.from(document.querySelectorAll('video, source')).map(e => ({
-          src: e.src || '',
-          currentSrc: e.currentSrc || '',
-          type: e.getAttribute('type') || ''
-        }));
-      });
-
-      for (const m of domSources) {
-        if (m.src && isMediaUrl(m.src)) candidates.set(m.src, { url: m.src, contentType: m.type, source: 'dom-src' });
-        if (m.currentSrc && isMediaUrl(m.currentSrc)) candidates.set(m.currentSrc, { url: m.currentSrc, contentType: m.type, source: 'dom-currentSrc' });
-      }
-
-      // Same-session MediaSilo API fallback using captured auth headers
-      if (inv.source && inv.source.reviewId) {
-        const apiCtx = page.context().request;
-        const apiUrl = `https://api.mediasilo.com/v3/quicklinks/${inv.source.reviewId}/assets/${a.assetId}`;
-        try {
-          const ar = await apiCtx.get(apiUrl, {
-            headers: {
-              ...mediasiloApiHeaders,
-              Referer: inv.source.reviewUrl,
-              Accept: 'application/json'
-            },
-            timeout: 20000
-          });
-          if (ar.ok()) {
-            const bodyText = await ar.text();
-            console.log(`PHASE4_API_FALLBACK assetId=${a.assetId} status=${ar.status()} bytes=${bodyText.length}`);
-            try {
-              const parsed = JSON.parse(bodyText);
-              const discovered = new Set();
-              collectStrings(parsed, discovered);
-              for (const u of discovered) {
-                if (isMediaUrl(u)) candidates.set(u, { url: u, contentType: 'api-response', source: 'same-session-api' });
-              }
-            } catch {}
-          }
-        } catch (apiErr) {
-          console.error(`PHASE4_API_FALLBACK_FAILED assetId=${a.assetId} err=${apiErr.message}`);
-        }
-      }
-
-      const mp = path.join(assetDir, 'source.mp4');
-
-      // 1. Try direct video bodies captured during response interception
-      for (const item of directMediaBodies) {
-        try {
-          const body = await item.response.body();
-          if (body && body.length > 100000) {
-            fs.writeFileSync(mp, body);
-            console.log(`Saved ${body.length} bytes from direct response body: ${item.url}`);
-            break;
-          }
-        } catch {}
-      }
-
-      // 2. Download candidate URLs if mp doesn't exist yet
-      if (!fs.existsSync(mp) || fs.statSync(mp).size < 100000) {
-        const cookies = await context.cookies();
-        const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-        const headers = { Referer: inv.source.reviewUrl, Cookie: cookieStr };
-
-        for (const item of candidates.values()) {
-          try {
-            if (/\.m3u8(?:[?#]|$)/i.test(item.url) || /mpegurl/i.test(item.contentType)) {
-              console.log(`Downloading HLS stream with ffmpeg: ${item.url}`);
-              cp.execFileSync('ffmpeg', [
-                '-y', '-loglevel', 'error',
-                '-headers', `Referer: ${inv.source.reviewUrl}\r\nCookie: ${cookieStr}`,
-                '-i', item.url, '-c', 'copy', mp
-              ], { timeout: 120000 });
-            } else {
-              console.log(`Downloading direct media URL: ${item.url}`);
-              const r = await context.request.get(item.url, { headers, failOnStatusCode: false, timeout: 120000 });
-              if (r.ok()) {
-                const body = await r.body();
-                if (body && body.length > 100000) {
-                  fs.writeFileSync(mp, body);
-                }
-              }
-            }
-
-            if (fs.existsSync(mp) && fs.statSync(mp).size > 100000) {
-              console.log(`Successfully acquired playable media (${fs.statSync(mp).size} bytes)`);
-              break;
-            }
-          } catch (dlErr) {
-            console.error(`Download candidate failed: ${item.url} - ${dlErr.message}`);
+        const apiRes = await context.request.get(
+          `https://api.mediasilo.com/v3/quicklinks/6a91d42a1c9dd13bd6636b14/assets/${a.assetId}`,
+          { headers: { ...mediasiloApiHeaders, Referer: reviewUrl, Accept: 'application/json' } }
+        );
+        if (apiRes.ok()) {
+          const body = await apiRes.json();
+          const found = new Set();
+          collectStrings(body, found);
+          for (const u of found) {
+            if (isMediaUrl(u)) candidates.set(u, { url: u, contentType: 'application/json', source: 'api-fallback' });
           }
         }
+      } catch (e) {
+        console.warn('API fallback request failed:', e.message);
       }
-
-      if (!fs.existsSync(mp) || fs.statSync(mp).size < 100000) {
-        throw new Error(`No verified playable media response for ${a.assetId}; candidateCount=${candidates.size}`);
-      }
-
-      // ffprobe validation
-      const durationStr = cp.execFileSync('ffprobe', [
-        '-v', 'error', '-show_entries', 'format=duration',
-        '-of', 'default=noprint_wrappers=1:nokey=1', mp
-      ], { encoding: 'utf8' }).trim();
-
-      const duration = Number(durationStr);
-      if (!Number.isFinite(duration) || duration < 10) {
-        throw new Error(`Invalid downloaded video duration for ${a.assetId}: ${durationStr}`);
-      }
-      console.log(`ffprobe verified duration: ${duration}s`);
-
-      // Extract 12 frames per video
-      const frames = [];
-      for (let i = 0; i < 12; i++) {
-        const t = Math.min(duration - 0.25, Math.max(0.25, (duration - 0.5) * (i / 11) + 0.25));
-        const ts = t.toFixed(3);
-        const fileName = `frame_${String(i + 1).padStart(2, '0')}_${ts.replace('.', 'p')}s.jpg`;
-        const filePath = path.join(frameDir, fileName);
-
-        cp.execFileSync('ffmpeg', [
-          '-y', '-loglevel', 'error',
-          '-ss', String(t), '-i', mp,
-          '-frames:v', '1', '-q:v', '2', filePath
-        ]);
-
-        if (!fs.existsSync(filePath) || fs.statSync(filePath).size < 1000) {
-          throw new Error(`Frame extraction failed for ${a.assetId} at timestamp ${ts}s`);
-        }
-
-        frames.push({
-          index: i + 1,
-          timestampSeconds: Number(ts),
-          path: filePath,
-          sizeBytes: fs.statSync(filePath).size
-        });
-      }
-
-      results.push({
-        assetId: a.assetId,
-        fileName: a.fileName,
-        inventoryDurationSeconds: Number(a.duration || 0) / 1000,
-        durationSeconds: duration,
-        frameCount: frames.length,
-        frames
-      });
-
-    } finally {
-      await page.close();
     }
+
+    await page.close();
+
+    console.log(`Found ${candidates.size} potential media candidate URLs for ${a.fileName}`);
+    let verifiedMediaFile = null;
+    let probeResult = null;
+
+    for (const [candidateUrl, info] of candidates.entries()) {
+      console.log(`Testing candidate [${info.source}]: ${candidateUrl.slice(0, 100)}...`);
+      const tempPath = path.join(tmpMediaDir, `${a.assetId}_candidate_${Date.now()}.mp4`);
+      try {
+        const fetchRes = await context.request.get(candidateUrl, { timeout: 60000 });
+        if (!fetchRes.ok()) continue;
+        const buf = await fetchRes.body();
+        if (buf.length < 100000) continue; // Must be at least 100KB
+
+        fs.writeFileSync(tempPath, buf);
+        const probe = runFFprobe(tempPath);
+        if (probe.valid) {
+          console.log(`SUCCESS: Verified playable media! Duration: ${probe.duration}s, Res: ${probe.width}x${probe.height}, Size: ${probe.size} bytes`);
+          verifiedMediaFile = tempPath;
+          probeResult = probe;
+          break;
+        } else {
+          console.warn(`Candidate failed ffprobe validation:`, probe.error || 'invalid metadata');
+          fs.unlinkSync(tempPath);
+        }
+      } catch (e) {
+        console.warn(`Failed to fetch/verify candidate:`, e.message);
+        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+      }
+    }
+
+    if (!verifiedMediaFile || !probeResult) {
+      const err = `No verified playable media response for ${a.assetId} (${a.fileName}); candidates tested=${candidates.size}`;
+      phase4Diagnostics.failures.push(err);
+      throw new Error(err);
+    }
+
+    // Extract 12 representative frames
+    console.log(`Extracting 12 representative frames for ${a.fileName}...`);
+    const frames = extractFrames(verifiedMediaFile, frameDir, probeResult.duration, 12);
+    console.log(`Extracted ${frames.length} valid frame files.`);
+
+    results.push({
+      assetId: a.assetId,
+      fileName: a.fileName,
+      folder: a.folder || 'root',
+      durationSeconds: probeResult.duration,
+      width: probeResult.width,
+      height: probeResult.height,
+      fileSizeBytes: probeResult.size,
+      frameCount: frames.length,
+      frames,
+      provenance: 'mediasilo_real_media_ffprobe_extracted'
+    });
+
+    phase4Diagnostics.assets.push({
+      assetId: a.assetId,
+      fileName: a.fileName,
+      duration: probeResult.duration,
+      width: probeResult.width,
+      height: probeResult.height,
+      frameCount: frames.length
+    });
   }
 
   await browser.close();
 
-  const totalFrames = results.reduce((n, r) => n + r.frameCount, 0);
-  if (results.length !== assets.length || totalFrames !== 24) {
-    throw new Error(`PHASE4_INPUT_VALIDATION_FAILED: assets=${results.length} frames=${totalFrames}`);
+  const totalFrames = results.reduce((sum, r) => sum + r.frameCount, 0);
+  if (results.length !== 2 || totalFrames !== 24) {
+    throw new Error(`Phase 4 acceptance criteria failed: expected 2 assets & 24 total frames, got ${results.length} assets & ${totalFrames} frames`);
   }
 
-  fs.writeFileSync('mediasilo-network.log', networkLog.map(x => JSON.stringify(x)).join('\n') + '\n');
-  fs.writeFileSync('mediasilo-debug.json', JSON.stringify(phase4Diagnostics, null, 2));
-
-  fs.writeFileSync(path.join(outDir, 'phase4-input-manifest.json'), JSON.stringify({
-    schemaVersion: '1.1',
+  const manifest = {
     complete: true,
     videoAssetCount: results.length,
     frameCount: totalFrames,
     results,
-    generatedAt: new Date().toISOString()
-  }, null, 2));
+    createdAt: new Date().toISOString()
+  };
 
-  console.log(`PHASE4_INPUT_VALIDATION_PASS assets=${results.length} frames=${totalFrames}`);
-})().catch(e => {
-  console.error('PHASE4_WORKER_FAILED:', e);
-  process.exit(1);
-});
+  const manifestPath = path.join(outDir, 'phase4-input-manifest.json');
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  fs.writeFileSync('mediasilo-debug.json', JSON.stringify(phase4Diagnostics, null, 2));
+  fs.writeFileSync('mediasilo-network.log', JSON.stringify(networkLog, null, 2));
+
+  console.log('\n==================================================');
+  console.log('PHASE4_ARTIFACT_VALIDATION_PASS');
+  console.log(`Assets: ${results.length} | Frames: ${totalFrames} | Manifest: ${manifestPath}`);
+  console.log('==================================================\n');
+})();
