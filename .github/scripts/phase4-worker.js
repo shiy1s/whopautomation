@@ -140,8 +140,6 @@ const networkLog = [];
 
       let sourceUrl = directMediaBodies.length ? directMediaBodies[0].url : null;
 
-      // Otherwise download a discovered HLS or direct-media URL with the authenticated browser context.
-      const apiCtx=page.context().request; const apiUrl='https://api.mediasilo.com/v3/quicklinks/'+inv.source.reviewId+'/assets/'+a.assetId; try { const ar=await apiCtx.get(apiUrl,{headers:{...mediasiloApiHeaders,Referer:inv.source.reviewUrl,Accept:'application/json'},timeout:30000}); const act=String(ar.headers()['content-type']||'').toLowerCase(); const body=await ar.text(); console.log('PHASE4_API_FALLBACK',JSON.stringify({assetId:a.assetId,status:ar.status(),contentType:act,bytes:body.length,authHeadersCaptured:Boolean(mediasiloApiHeaders['x-key']&&mediasiloApiHeaders['x-secret'])})); if(ar.ok()&&body){try{const parsed=JSON.parse(body);const discovered=new Set();collectStrings(parsed,discovered);for(const u of discovered)record(u,act,'same-session-api',{status:ar.status()});}catch{}} } catch(err) { console.error('PHASE4_API_FALLBACK_FAILED',JSON.stringify({assetId:a.assetId,error:String(err&&err.message||err)})); }
       if (!fs.existsSync(mp) || fs.statSync(mp).size < 100000) {
         for (const item of [...candidates.values()]) {
           try {
@@ -162,7 +160,9 @@ const networkLog = [];
             if (fs.existsSync(mp) && fs.statSync(mp).size > 100000) {
               sourceUrl = item.url;
               break;
-            }
+// Otherwise download a discovered HLS or direct-media URL with the authenticated browser context.
+      const apiCtx=page.context().request; const apiUrl='https://api.mediasilo.com/v3/quicklinks/'+inv.source.reviewId+'/assets/'+a.assetId; try { const ar=await apiCtx.get(apiUrl,{headers:{...mediasiloApiHeaders,Referer:inv.source.reviewUrl,Accept:'application/json'},timeout:30000}); const act=String(ar.headers()['content-type']||'').toLowerCase(); const body=await ar.text(); console.log('PHASE4_API_FALLBACK',JSON.stringify({assetId:a.assetId,status:ar.status(),contentType:act,bytes:body.length,authHeadersCaptured:Boolean(mediasiloApiHeaders['x-key']&&mediasiloApiHeaders['x-secret'])})); if(ar.ok()&&body){try{const parsed=JSON.parse(body);const discovered=new Set();collectStrings(parsed,discovered);for(const u of discovered)record(u,act,'same-session-api',{status:ar.status()});}catch{}} } catch(err) { console.error('PHASE4_API_FALLBACK_FAILED',JSON.stringify({assetId:a.assetId,error:String(err&&err.message||err)})); }
+                  }
           } catch {}
         }
       }
