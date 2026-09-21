@@ -95,9 +95,8 @@ const collectStrings = (obj, out = new Set()) => {
 
         if (ct.includes('json')) {
           try {
-            const json = await response.json();
             const out = new Set();
-            collectStrings(json, out);
+            collectStrings(await response.json(), out);
             for (const u of out) {
               if (isMediaUrl(u)) candidates.set(u, { url: u, contentType: ct, source: 'json-body' });
             }
