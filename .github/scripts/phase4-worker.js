@@ -15,6 +15,14 @@ const networkLog = [];
   const browser = await chromium.launch({headless:true,args:['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage']});
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
   const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const mediasiloApiHeaders={};
+  const bootstrapPage=await context.newPage();
+  bootstrapPage.on('request', request => { try { const u=request.url(); if(u.startsWith('https://api.mediasilo.com/')) { const h=request.headers(); if(h['x-key']&&h['x-secret']) Object.assign(mediasiloApiHeaders,{'x-key':h['x-key'],'x-secret':h['x-secret']}); } } catch {} });
+  await bootstrapPage.goto(inv.source.reviewUrl,{waitUntil:'domcontentloaded',timeout:90000});
+  await sleep(2500);
+  await bootstrapPage.close();
+  if(!mediasiloApiHeaders['x-key']||!mediasiloApiHeaders['x-secret']) console.warn('PHASE4_AUTH_HEADERS_NOT_CAPTURED');
+  
   const results = [];
   
 
@@ -39,7 +47,7 @@ const networkLog = [];
     }
   };
 
-  const mediasiloApiHeaders={};
+  
   const bootstrapPage=await context.newPage();
   context.on('request', request => { try { const u=request.url(); if(u.startsWith('https://api.mediasilo.com/')) { const h=request.headers(); const picked={}; for(const k of ['x-key','x-secret','authorization','x-api-key']) if(h[k]) picked[k]=h[k]; if(picked['x-key']&&picked['x-secret']) Object.assign(mediasiloApiHeaders,{'x-key':picked['x-key'],'x-secret':picked['x-secret']}); } } catch {} });
   await bootstrapPage.goto(inv.source.reviewUrl,{waitUntil:'domcontentloaded',timeout:90000});
@@ -140,6 +148,8 @@ const networkLog = [];
 
       let sourceUrl = directMediaBodies.length ? directMediaBodies[0].url : null;
 
+      // Same-session MediaSilo API fallback; credentials are captured from the authenticated browser network.
+      const apiCtx=page.context().request; const apiUrl='https://api.mediasilo.com/v3/quicklinks/'+inv.source.reviewId+'/assets/'+a.assetId; try { const ar=await apiCtx.get(apiUrl,{headers:{...mediasiloApiHeaders,Referer:inv.source.reviewUrl,Accept:'application/json'},timeout:30000}); const act=String(ar.headers()['content-type']||'').toLowerCase(); const body=await ar.text(); console.log('PHASE4_API_FALLBACK',JSON.stringify({assetId:a.assetId,status:ar.status(),contentType:act,bytes:body.length,authHeadersCaptured:Boolean(mediasiloApiHeaders['x-key']&&mediasiloApiHeaders['x-secret'])})); if(ar.ok()&&body){try{const parsed=JSON.parse(body);const discovered=new Set();collectStrings(parsed,discovered);for(const u of discovered)record(u,act,'same-session-api',{status:ar.status()});}catch{}} } catch(err) { console.error('PHASE4_API_FALLBACK_FAILED',JSON.stringify({assetId:a.assetId,error:String(err&&err.message||err)})); }
       if (!fs.existsSync(mp) || fs.statSync(mp).size < 100000) {
         for (const item of [...candidates.values()]) {
           try {
@@ -161,7 +171,6 @@ const networkLog = [];
               sourceUrl = item.url;
               break;
 // Otherwise download a discovered HLS or direct-media URL with the authenticated browser context.
-      const apiCtx=page.context().request; const apiUrl='https://api.mediasilo.com/v3/quicklinks/'+inv.source.reviewId+'/assets/'+a.assetId; try { const ar=await apiCtx.get(apiUrl,{headers:{...mediasiloApiHeaders,Referer:inv.source.reviewUrl,Accept:'application/json'},timeout:30000}); const act=String(ar.headers()['content-type']||'').toLowerCase(); const body=await ar.text(); console.log('PHASE4_API_FALLBACK',JSON.stringify({assetId:a.assetId,status:ar.status(),contentType:act,bytes:body.length,authHeadersCaptured:Boolean(mediasiloApiHeaders['x-key']&&mediasiloApiHeaders['x-secret'])})); if(ar.ok()&&body){try{const parsed=JSON.parse(body);const discovered=new Set();collectStrings(parsed,discovered);for(const u of discovered)record(u,act,'same-session-api',{status:ar.status()});}catch{}} } catch(err) { console.error('PHASE4_API_FALLBACK_FAILED',JSON.stringify({assetId:a.assetId,error:String(err&&err.message||err)})); }
                   }
           } catch {}
         }
