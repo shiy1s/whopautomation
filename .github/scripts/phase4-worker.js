@@ -19,7 +19,7 @@ const isMediaType = ct => {
 const collectStrings = (obj, out = new Set()) => {
   if (!obj) return out;
   if (typeof obj === 'string') {
-    if (obj.startsWith('http') || isMediaUrl(obj)) out.add(obj);
+    if (/^https?:\/\//i.test(obj) && isMediaUrl(obj)) out.add(obj);
   } else if (Array.isArray(obj)) {
     for (const item of obj) collectStrings(item, out);
   } else if (typeof obj === 'object') {
@@ -39,7 +39,10 @@ const runFFprobe = filePath => {
     const size = parseInt(data.format?.size || 0, 10);
     return { valid: duration >= 10 && width > 0 && height > 0, duration, width, height, size, raw: data };
   } catch (e) {
-    return { valid: false, error: e.message };
+    const stderr = e.stderr ? String(e.stderr).trim().slice(0, 500) : '';
+    let fileHead = '';
+    try { fileHead = fs.readFileSync(filePath).slice(0, 24).toString('hex'); } catch {}
+    return { valid: false, error: (stderr || e.message), fileHead };
   }
 };
 
@@ -129,6 +132,7 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
     const assetOutDir = path.join(outDir, a.assetId);
     const frameDir = path.join(assetOutDir, 'frames');
     fs.mkdirSync(frameDir, { recursive: true });
+    try {
 
     const candidates = new Map();
     const page = await context.newPage();
@@ -188,28 +192,45 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
     let verifiedMediaFile = null;
     let probeResult = null;
 
+    const candidateEvidence = [];
     for (const [candidateUrl, info] of candidates.entries()) {
-      console.log(`Testing candidate [${info.source}]: ${candidateUrl.slice(0, 100)}...`);
+      console.log(`Testing candidate [${info.source}]: ${candidateUrl.slice(0, 140)}...`);
       const tempPath = path.join(tmpMediaDir, `${a.assetId}_candidate_${Date.now()}.mp4`);
       try {
-        const fetchRes = await context.request.get(candidateUrl, { timeout: 60000 });
-        if (!fetchRes.ok()) continue;
+        const fetchRes = await context.request.get(candidateUrl, {
+          timeout: 60000,
+          headers: { Referer: reviewUrl, Accept: '*/*' }
+        });
+        const status = fetchRes.status();
+        const resCt = String(fetchRes.headers()['content-type'] || '').toLowerCase();
+        if (!fetchRes.ok()) {
+          candidateEvidence.push({ url: candidateUrl, source: info.source, status, contentType: resCt, outcome: 'http-not-ok' });
+          console.warn(`Candidate HTTP not ok: status=${status} contentType=${resCt}`);
+          continue;
+        }
+
         const buf = await fetchRes.body();
-        if (buf.length < 100000) continue; // Must be at least 100KB
+        if (buf.length < 100000) {
+          candidateEvidence.push({ url: candidateUrl, source: info.source, status, contentType: resCt, bytes: buf.length, outcome: 'too-small' });
+          continue; // Must be at least 100KB
+        }
 
         fs.writeFileSync(tempPath, buf);
         const probe = runFFprobe(tempPath);
         if (probe.valid) {
           console.log(`SUCCESS: Verified playable media! Duration: ${probe.duration}s, Res: ${probe.width}x${probe.height}, Size: ${probe.size} bytes`);
+          candidateEvidence.push({ url: candidateUrl, source: info.source, status, contentType: resCt, bytes: buf.length, outcome: 'verified' });
           verifiedMediaFile = tempPath;
           probeResult = probe;
           break;
         } else {
-          console.warn(`Candidate failed ffprobe validation:`, probe.error || 'invalid metadata');
+          console.warn(`Candidate failed ffprobe validation: status=${status} contentType=${resCt} bytes=${buf.length} error=${probe.error} fileHead=${probe.fileHead}`);
+          candidateEvidence.push({ url: candidateUrl, source: info.source, status, contentType: resCt, bytes: buf.length, outcome: 'ffprobe-failed', error: probe.error, fileHead: probe.fileHead });
           fs.unlinkSync(tempPath);
         }
       } catch (e) {
         console.warn(`Failed to fetch/verify candidate:`, e.message);
+        candidateEvidence.push({ url: candidateUrl, source: info.source, outcome: 'fetch-error', error: e.message });
         if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
       }
     }
@@ -217,7 +238,9 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
     if (!verifiedMediaFile || !probeResult) {
       const err = `No verified playable media response for ${a.assetId} (${a.fileName}); candidates tested=${candidates.size}`;
       phase4Diagnostics.failures.push(err);
-      throw new Error(err);
+      phase4Diagnostics.assets.push({ assetId: a.assetId, fileName: a.fileName, candidateCount: candidates.size, candidateEvidence, outcome: 'no-verified-media' });
+      console.error(err);
+      continue;
     }
 
     // Extract 12 representative frames
@@ -244,8 +267,15 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
       duration: probeResult.duration,
       width: probeResult.width,
       height: probeResult.height,
-      frameCount: frames.length
+      frameCount: frames.length,
+      candidateCount: candidates.size,
+      candidateEvidence,
+      outcome: 'verified'
     });
+    } catch (assetErr) {
+      console.error(`Asset ${a.assetId} failed:`, assetErr.message);
+      phase4Diagnostics.failures.push(`${a.assetId}: ${assetErr.message}`);
+    }
   }
 
   await browser.close();
