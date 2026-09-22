@@ -1,0 +1,145 @@
+name: Phase 4B AI Semantic Analysis
+
+on:
+  workflow_run:
+    workflows: ["MediaSilo AI Input Worker"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      phase4_run_id:
+        description: "Successful Phase 4A GitHub Actions run ID"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  phase4b:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Phase 4A run
+        id: source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_RUN_ID: ${{ inputs.phase4_run_id }}
+          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            RUN_ID="$DISPATCH_RUN_ID"
+          else
+            RUN_ID="$WORKFLOW_RUN_ID"
+          fi
+          test -n "$RUN_ID"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "Using Phase 4A run: $RUN_ID"
+
+      - name: Verify Phase 4A run succeeded
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.source.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          CONCLUSION=$(gh run view "$RUN_ID" --repo "${{ github.repository }}" --json conclusion --jq '.conclusion')
+          if [ "$CONCLUSION" != "success" ]; then
+            echo "Phase 4A run $RUN_ID conclusion=$CONCLUSION"
+            exit 1
+          fi
+
+      - name: Download exact Phase 4A artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.source.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p phase4-source
+          gh run download "$RUN_ID" \
+            --repo "${{ github.repository }}" \
+            --name mediasilo-ai-input \
+            --dir phase4-source
+          test -f phase4-source/phase4-input/phase4-input-manifest.json
+          echo "Phase 4A artifact downloaded from exact run $RUN_ID"
+
+      - name: Verify Phase 4A evidence contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("phase4-source/phase4-input/phase4-input-manifest.json")
+          m=json.loads(p.read_text())
+          if m.get("complete") is not True or m.get("videoAssetCount") != 2 or m.get("frameCount") != 24:
+              raise SystemExit("Phase 4A manifest contract failed")
+          if len(m.get("results", [])) != 2 or any(x.get("frameCount") != 12 for x in m["results"]):
+              raise SystemExit("Phase 4A asset/frame contract failed")
+          for asset in m["results"]:
+              for frame in asset["frames"]:
+                  fp=Path("phase4-source/phase4-input")/frame["filePath"]
+                  if not fp.is_file() or fp.stat().st_size < 1000:
+                      raise SystemExit(f"Missing/invalid frame: {fp}")
+          print("PHASE4A_EVIDENCE_CONTRACT_PASS")
+          PY
+
+      - name: Prepare Phase 4B input
+        run: |
+          set -euo pipefail
+          rm -rf phase4-input
+          cp -R phase4-source/phase4-input ./phase4-input
+
+      - name: Install Gemini SDK
+        run: python -m pip install -q --disable-pip-version-check google-genai
+
+      - name: Run Phase 4B semantic analysis
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$GEMINI_API_KEY"
+          python .github/scripts/phase4b-ai-analysis.py
+
+      - name: Validate Phase 4B artifact
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path("phase4-analysis")
+          m=json.loads((root/"phase4-analysis-manifest.json").read_text())
+          if m.get("complete") is not True:
+              raise SystemExit("Phase 4B manifest is not complete=true")
+          if m.get("analysis",{}).get("assetCount") != 2 or m.get("analysis",{}).get("frameCount") != 24:
+              raise SystemExit("Phase 4B count validation failed")
+          assets=m.get("assets",[])
+          if len(assets)!=2 or any(a.get("frameCount")!=12 for a in assets):
+              raise SystemExit("Phase 4B asset validation failed")
+          for a in assets:
+              p=root/a["analysisFile"]
+              d=json.loads(p.read_text())
+              if len(d.get("frames",[]))!=12:
+                  raise SystemExit(f"Frame analysis count failed: {p}")
+              for f in d["frames"]:
+                  if not f.get("visualDescription"):
+                      raise SystemExit(f"Empty visualDescription: {p}")
+          print("PHASE4B_ARTIFACT_VALIDATION_PASS")
+          PY
+
+      - name: Upload Phase 4B analysis artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mediasilo-ai-semantic-analysis
+          path: |
+            phase4-analysis
+            phase4-source/phase4-input/phase4-input-manifest.json
+          if-no-files-found: error
+          retention-days: 30
