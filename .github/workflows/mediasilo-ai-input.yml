@@ -15,6 +15,12 @@ jobs:
           npm init -y
           npm install --no-audit --no-fund playwright@1.55.0
           npx playwright install --with-deps chromium
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          ffmpeg -version
+          ffprobe -version
       - name: Build Phase 4 AI input
         run: node .github/scripts/phase4-worker.js
       - name: Validate Phase 4 artifact
