@@ -73,14 +73,21 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
 
 (async () => {
   console.log('=== Starting Phase 4 MediaSilo Real-Media Worker ===');
-  const inputRaw = process.env.INVENTORY_JSON_B64
-    ? Buffer.from(process.env.INVENTORY_JSON_B64, 'base64').toString('utf8')
-    : fs.existsSync('mediasilo-inventory.json')
-    ? fs.readFileSync('mediasilo-inventory.json', 'utf8')
-    : null;
+  // Phase 4 consumes the committed Phase 2 inventory directly.
+  // Do not pass the inventory through workflow_dispatch/base64 input: that
+  // introduces an unnecessary corruption vector and makes the run non-deterministic.
+  const inventoryPath = path.resolve('mediasilo-inventory.json');
+  if (!fs.existsSync(inventoryPath)) {
+    throw new Error(`Missing committed Phase 2 inventory: ${inventoryPath}`);
+  }
 
-  if (!inputRaw) throw new Error('Missing inventory input (INVENTORY_JSON_B64 or mediasilo-inventory.json)');
-  const inv = JSON.parse(inputRaw);
+  const inputRaw = fs.readFileSync(inventoryPath, 'utf8');
+  let inv;
+  try {
+    inv = JSON.parse(inputRaw);
+  } catch (e) {
+    throw new Error(`Invalid mediasilo-inventory.json: ${e.message}`);
+  }
 
   const assets = (inv.assets || []).filter(a => a.type === 'video');
   if (assets.length !== 2) {
