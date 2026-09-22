@@ -1,15 +1,6 @@
 name: MediaSilo AI Input Worker
 on:
   workflow_dispatch:
-    inputs:
-      review_url:
-        description: MediaSilo review URL
-        required: true
-        type: string
-      discovery_json:
-        description: Verified discovery seed JSON in base64
-        required: true
-        type: string
 jobs:
   phase4:
     runs-on: ubuntu-latest
@@ -25,8 +16,6 @@ jobs:
           npm install --no-audit --no-fund playwright@1.55.0
           npx playwright install --with-deps chromium
       - name: Build Phase 4 AI input
-        env:
-          INVENTORY_JSON_B64: ${{ inputs.discovery_json }}
         run: node .github/scripts/phase4-worker.js
       - name: Validate Phase 4 artifact
         run: node -e "const fs=require('fs');const p='phase4-input/phase4-input-manifest.json';if(!fs.existsSync(p))throw new Error('Manifest missing');const m=JSON.parse(fs.readFileSync(p));if(m.complete!==true||m.videoAssetCount!==2||m.results.length!==2||m.results.some(x=>x.frameCount!==12)||m.frameCount!==24)throw new Error('Phase 4 manifest validation failed');console.log('PHASE4_ARTIFACT_VALIDATION_PASS');"
