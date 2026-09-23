@@ -71,7 +71,7 @@ def youtube(c):
  cr=Credentials(None,refresh_token=os.environ["YOUTUBE_REFRESH_TOKEN"],token_uri="https://oauth2.googleapis.com/token",client_id=os.environ["YOUTUBE_CLIENT_ID"],client_secret=os.environ["YOUTUBE_CLIENT_SECRET"],scopes=["https://www.googleapis.com/auth/youtube.upload"])
  cr.refresh(Request()); yt=build("youtube","v3",credentials=cr,cache_discovery=False)
  md=jfile(ROOT/c["metadataFile"])["youtubeShorts"]
- body={"snippet":{"title":md["title"],"description":md["description"],"tags":md["tags"],"categoryId":"20"},"status":{"privacyStatus":os.environ.get("YOUTUBE_PRIVACY_STATUS","public"),"selfDeclaredMadeForKids":False}}
+ body={"snippet":{"title":md["title"],"description":md["description"],"tags":md["tags"],"categoryId":"20"},"status":{"privacyStatus":(os.environ.get("YOUTUBE_PRIVACY_STATUS") or "public"),"selfDeclaredMadeForKids":False}}
  req=yt.videos().insert(part="snippet,status",body=body,media_body=MediaFileUpload(str(ROOT/"videos"/c["file"]),mimetype="video/mp4",resumable=True,chunksize=8*1024*1024))
  r=req.execute(); return {"videoId":r["id"],"privacyStatus":r.get("status",{}).get("privacyStatus")}
 def tiktok_token():
@@ -91,7 +91,7 @@ def tiktok(c):
  urllib.request.urlopen(r,timeout=180).read()
  return {"publishId":pid,"privacyLevel":"PUBLIC_TO_EVERYONE"}
 def instagram(c):
- tok=os.environ["INSTAGRAM_ACCESS_TOKEN"]; ig=os.environ["INSTAGRAM_USER_ID"]; v=os.environ.get("INSTAGRAM_GRAPH_VERSION","v24.0"); tag=os.environ["PHASE11_RELEASE_TAG"]
+ tok=os.environ["INSTAGRAM_ACCESS_TOKEN"]; ig=os.environ["INSTAGRAM_USER_ID"]; v=(os.environ.get("INSTAGRAM_GRAPH_VERSION") or "v24.0"); tag=os.environ["PHASE11_RELEASE_TAG"]
  md=jfile(ROOT/c["metadataFile"])["instagram"]; video=f"https://github.com/{REPO}/releases/download/{tag}/{c['file']}"
  q=urllib.parse.urlencode({"media_type":"REELS","video_url":video,"caption":md["caption"],"share_to_feed":"true","access_token":tok})
  d=http_json(f"https://graph.facebook.com/{v}/{ig}/media?{q}","POST"); cid=d.get("id")
