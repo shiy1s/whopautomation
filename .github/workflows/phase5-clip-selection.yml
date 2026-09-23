@@ -1,0 +1,135 @@
+name: Phase 5 Clip Selection
+
+on:
+  workflow_run:
+    workflows: ["Phase 4B AI Semantic Analysis"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      phase4b_run_id:
+        description: "Successful Phase 4B GitHub Actions run ID"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  phase5:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select exact Phase 4B run
+        id: source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_RUN_ID: ${{ inputs.phase4b_run_id }}
+          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            RUN_ID="$DISPATCH_RUN_ID"
+          else
+            RUN_ID="$WORKFLOW_RUN_ID"
+          fi
+          test -n "$RUN_ID"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Phase 4B run succeeded
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.source.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          CONCLUSION=$(gh run view "$RUN_ID" --repo "${{ github.repository }}" --json conclusion --jq '.conclusion')
+          test "$CONCLUSION" = "success"
+
+      - name: Download exact Phase 4B artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.source.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p phase4-source
+          gh run download "$RUN_ID" \
+            --repo "${{ github.repository }}" \
+            --name mediasilo-ai-semantic-analysis \
+            --dir phase4-source
+          test -f phase4-source/phase4-analysis/phase4-analysis-manifest.json
+          test -f phase4-source/phase4-source/phase4-input/phase4-input-manifest.json
+
+      - name: Verify Phase 4B evidence contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path("phase4-source/phase4-analysis")
+          m=json.loads((root/"phase4-analysis-manifest.json").read_text())
+          if m.get("complete") is not True:
+              raise SystemExit("Phase 4B is not complete=true")
+          if m.get("analysis",{}).get("assetCount") != 2 or m.get("analysis",{}).get("frameCount") != 24:
+              raise SystemExit("Phase 4B count contract failed")
+          for a in m.get("assets",[]):
+              d=json.loads((root/a["analysisFile"]).read_text())
+              if len(d.get("frames",[])) != 12:
+                  raise SystemExit("Phase 4B frame contract failed")
+          print("PHASE4B_EVIDENCE_CONTRACT_PASS")
+          PY
+
+      - name: Install Gemini SDK
+        run: python -m pip install -q --disable-pip-version-check google-genai
+
+      - name: Run Phase 5 selection
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$GEMINI_API_KEY"
+          python .github/scripts/phase5-clip-selection.py
+
+      - name: Validate Phase 5 artifact
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("phase5-selection/phase5-selection-manifest.json")
+          m=json.loads(p.read_text())
+          if m.get("complete") is not True:
+              raise SystemExit("Phase 5 manifest is not complete=true")
+          if m.get("sourcePhase",{}).get("assetCount") != 2 or m.get("sourcePhase",{}).get("frameCount") != 24:
+              raise SystemExit("Phase 5 source contract failed")
+          if m.get("selectedCount") != 2 or len(m.get("selections",[])) != 2:
+              raise SystemExit("Phase 5 selection count failed")
+          ids=set()
+          for s in m["selections"]:
+              c=s["selectedCandidate"]
+              if c["candidateId"] in ids:
+                  raise SystemExit("Duplicate selected candidate")
+              ids.add(c["candidateId"])
+              if c["durationSeconds"] < 10:
+                  raise SystemExit("Selected candidate shorter than 10 seconds")
+              if not c["fileName"] or not c["assetId"]:
+                  raise SystemExit("Missing selected candidate provenance")
+              if not s["aiDecision"].get("rationale"):
+                  raise SystemExit("Missing AI rationale")
+          print("PHASE5_ARTIFACT_VALIDATION_PASS")
+          PY
+
+      - name: Upload Phase 5 selection artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mediasilo-clip-selection
+          path: phase5-selection
+          if-no-files-found: error
+          retention-days: 30
