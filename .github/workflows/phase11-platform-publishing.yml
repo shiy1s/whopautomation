@@ -1,0 +1,113 @@
+name: Phase 11 Platform Publishing
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase10_run_id:
+        description: "Exact successful Phase 10 run ID"
+        required: true
+        type: string
+      platforms:
+        description: "Platforms to publish"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - youtube
+          - tiktok
+          - instagram
+      confirm_publish:
+        description: "Type PUBLISH to authorize actual platform publishing"
+        required: true
+        type: string
+
+concurrency:
+  group: phase11-platform-publishing
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  phase11:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PHASE10_RUN_ID: ${{ inputs.phase10_run_id }}
+      PLATFORMS: ${{ inputs.platforms }}
+      CONFIRM_PUBLISH: ${{ inputs.confirm_publish }}
+      PACKAGE_DIR: phase10
+      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+      YOUTUBE_PRIVACY_STATUS: ${{ vars.YOUTUBE_PRIVACY_STATUS }}
+      TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+      TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+      TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
+      TIKTOK_ACCESS_TOKEN: ${{ secrets.TIKTOK_ACCESS_TOKEN }}
+      INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+      INSTAGRAM_USER_ID: ${{ secrets.INSTAGRAM_USER_ID }}
+      INSTAGRAM_GRAPH_VERSION: ${{ vars.INSTAGRAM_GRAPH_VERSION }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Validate Phase 10 run
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run view "$PHASE10_RUN_ID" --repo "$GITHUB_REPOSITORY" --json databaseId,status,conclusion,headSha,workflowName
+          status="$(gh run view "$PHASE10_RUN_ID" --repo "$GITHUB_REPOSITORY" --json status --jq '.status')"
+          conclusion="$(gh run view "$PHASE10_RUN_ID" --repo "$GITHUB_REPOSITORY" --json conclusion --jq '.conclusion')"
+          workflow="$(gh run view "$PHASE10_RUN_ID" --repo "$GITHUB_REPOSITORY" --json workflowName --jq '.workflowName')"
+          test "$status" = "completed"
+          test "$conclusion" = "success"
+          test "$workflow" = "Phase 10 Publishing Package"
+
+      - name: Download exact Phase 10 package
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf phase10
+          mkdir -p phase10
+          gh run download "$PHASE10_RUN_ID" --repo "$GITHUB_REPOSITORY" --name phase10-publishing-package --dir phase10
+
+      - name: Phase 11 credential and package preflight
+        env:
+          PHASE11_PREFLIGHT: "1"
+        run: |
+          set -euo pipefail
+          python -m py_compile .github/scripts/phase11-platform-publishing.py
+          python .github/scripts/phase11-platform-publishing.py
+
+      - name: Create temporary public media release for Instagram
+        if: ${{ inputs.platforms == 'all' || inputs.platforms == 'instagram' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="phase11-media-${GITHUB_RUN_ID}"
+          echo "PHASE11_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+          gh release create "$tag"             phase10/videos/clip_01.mp4             phase10/videos/clip_02.mp4             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "Phase 11 temporary media ${GITHUB_RUN_ID}"             --notes "Temporary public transport for the Phase 11 Instagram publishing transaction. Delete after publishing."
+
+      - name: Publish exact Phase 10 package
+        shell: bash
+        run: |
+          set +e
+          python .github/scripts/phase11-platform-publishing.py
+          rc=$?
+          if [ -n "${PHASE11_RELEASE_TAG:-}" ]; then
+            gh release delete "$PHASE11_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+          fi
+          exit "$rc"
+
+      - name: Cleanup temporary media release
+        if: ${{ always() && (inputs.platforms == 'all' || inputs.platforms == 'instagram') }}
+        shell: bash
+        run: |
+          set +e
+          if [ -n "${PHASE11_RELEASE_TAG:-}" ]; then
+            gh release delete "$PHASE11_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          fi
