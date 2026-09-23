@@ -100,6 +100,8 @@ jobs:
               ids.add(p["assetId"])
               if p["durationSeconds"] < 10:
                   raise SystemExit("Phase 6 plan shorter than 10 seconds")
+              if p["durationSeconds"] > 60:
+                  raise SystemExit("Phase 6 plan exceeds the proven Phase 7 renderer 60s ceiling")
               if p["startSeconds"] < 0 or p["endSeconds"] > p["sourceDurationSeconds"]:
                   raise SystemExit("Phase 6 boundary outside source duration")
               if p["endSeconds"] <= p["startSeconds"]:
