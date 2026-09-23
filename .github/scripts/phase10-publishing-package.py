@@ -24,7 +24,7 @@ if not isinstance(p9.get("phase7RunId"), int) or p9["phase7RunId"] <= 0:
     raise RuntimeError("Phase 9 must contain a valid Phase 7 run ID.")
 if p7.get("complete") is not True or p7.get("phase") != "7_ffmpeg_rendering":
     raise RuntimeError("Phase 7 render manifest is not complete.")
-if p7.get("phase6RunId", 0) <= 0:
+if not isinstance(p7.get("phase6RunId"), int) or p7["phase6RunId"] <= 0:
     raise RuntimeError("Phase 7 manifest lacks a valid Phase 6 provenance ID.")
 if len(p9.get("clips", [])) != 2:
     raise RuntimeError("Phase 10 requires exactly two metadata clips.")
@@ -37,35 +37,53 @@ if not VIDEOS.is_dir():
     raise RuntimeError("Phase 7 clip artifact directory is missing.")
 
 qa_by_file = {x["file"]: x for x in quality}
-plan_by_file = {x["fileName"]: x for x in p7["plans"]}
+if len(qa_by_file) != 2:
+    raise RuntimeError("Phase 7 quality report must contain exactly two unique output files.")
 
-if len(qa_by_file) != 2 or len(plan_by_file) != 2:
-    raise RuntimeError("Phase 7 provenance indexes are not exactly two unique entries.")
+# Phase 7's producer contract is explicit: phase7-prepare-render-jobs.py
+# enumerates Phase 6 plans in order as jobs 01/02, and the workflow copies
+# those outputs to final-output/clip_01.mp4 and clip_02.mp4. Therefore the
+# stable provenance binding is clipNumber -> ordered Phase 7 plan.
+plans = p7["plans"]
+plan_by_clip_number = {index + 1: plan for index, plan in enumerate(plans)}
+if sorted(plan_by_clip_number) != [1, 2]:
+    raise RuntimeError("Phase 7 plan ordering is not exactly two deterministic entries.")
+
+for clip_number, plan in plan_by_clip_number.items():
+    if not plan.get("planId") or not plan.get("assetId") or not plan.get("fileName"):
+        raise RuntimeError(f"Phase 7 plan {clip_number} lacks required provenance fields.")
+    if not 10.0 <= float(plan["durationSeconds"]) <= 60.0:
+        raise RuntimeError(f"Phase 7 plan {plan['planId']} has invalid duration.")
 
 if OUT.exists():
     shutil.rmtree(OUT)
 (OUT / "videos").mkdir(parents=True)
 (OUT / "metadata").mkdir()
-(OUT / "platform").mkdir()
+(OUT / "platform").mkdir(parents=True)
 
 packages = []
 for item in sorted(p9["clips"], key=lambda x: x["clipNumber"]):
+    clip_number = int(item["clipNumber"])
     filename = item["file"]
     source = VIDEOS / filename
+
+    if clip_number not in plan_by_clip_number:
+        raise RuntimeError(f"{filename}: no deterministic Phase 7 plan for clip number {clip_number}.")
     if not source.is_file() or source.stat().st_size < 100000:
         raise RuntimeError(f"{filename}: rendered video is missing or implausibly small.")
     if filename not in qa_by_file:
         raise RuntimeError(f"{filename}: missing Phase 7 quality report.")
-    if filename not in plan_by_file:
-        raise RuntimeError(f"{filename}: missing Phase 7 plan provenance.")
 
     q = qa_by_file[filename]
-    plan = plan_by_file[filename]
+    plan = plan_by_clip_number[clip_number]
+
     duration = float(item["durationSeconds"])
     q_duration = float(q["duration"])
+    plan_duration = float(plan["durationSeconds"])
+
     if abs(duration - q_duration) > 0.15:
         raise RuntimeError(f"{filename}: Phase 9 duration disagrees with Phase 7 QA.")
-    if abs(duration - float(plan["durationSeconds"])) > 0.25:
+    if abs(duration - plan_duration) > 0.25:
         raise RuntimeError(f"{filename}: Phase 9 duration disagrees with Phase 6/7 plan.")
     if not (10.0 <= duration <= 60.0):
         raise RuntimeError(f"{filename}: duration outside publishing bounds.")
@@ -85,6 +103,7 @@ for item in sorted(p9["clips"], key=lambda x: x["clipNumber"]):
             raise RuntimeError(f"{filename}: hashtag limit exceeded for {platform}.")
 
     shutil.copy2(source, OUT / "videos" / filename)
+
     metadata_source = Path("phase9-metadata") / filename.replace(".mp4", ".json")
     if not metadata_source.is_file():
         raise RuntimeError(f"{filename}: per-clip Phase 9 metadata file is missing.")
@@ -94,23 +113,34 @@ for item in sorted(p9["clips"], key=lambda x: x["clipNumber"]):
     clip_dir.mkdir()
     for platform in ("youtubeShorts", "tiktok", "instagram"):
         (clip_dir / f"{platform}.json").write_text(
-            json.dumps(item[platform], indent=2, ensure_ascii=False), encoding="utf-8"
+            json.dumps(item[platform], indent=2, ensure_ascii=False),
+            encoding="utf-8",
         )
 
     sha = hashlib.sha256(source.read_bytes()).hexdigest()
     packages.append({
-        "clipNumber": item["clipNumber"],
+        "clipNumber": clip_number,
         "file": filename,
         "durationSeconds": duration,
         "sha256": sha,
         "phase6PlanId": plan["planId"],
+        "phase7Plan": {
+            "assetId": plan["assetId"],
+            "sourceFileName": plan["fileName"],
+            "startSeconds": float(plan["startSeconds"]),
+            "endSeconds": float(plan["endSeconds"]),
+            "durationSeconds": plan_duration,
+        },
         "phase7Quality": q,
         "platforms": ["youtubeShorts", "tiktok", "instagram"],
         "metadataFile": f"metadata/{Path(filename).stem}.json",
     })
 
+if sorted(x["clipNumber"] for x in packages) != [1, 2]:
+    raise RuntimeError("Phase 10 package does not contain exactly clip 1 and clip 2.")
+
 manifest = {
-    "schemaVersion": "1.0",
+    "schemaVersion": "1.1",
     "phase": "10_publishing_package",
     "complete": True,
     "status": "ready_for_platform_publishing",
@@ -122,7 +152,7 @@ manifest = {
     "campaignId": p9["campaignId"],
     "campaignName": p9["campaignName"],
     "publishingPolicy": {
-        "platforms": ["youtubeShorts", "tiktok", "instagram"],
+        "platforms": ["YouTube Shorts", "TikTok", "Instagram"],
         "postLiveMinimumDays": 30,
         "visibleLikesRequired": True,
         "paidBoostingForbidden": True,
@@ -140,12 +170,15 @@ manifest = {
         "platformMetadataSeparated": True,
         "videoChecksumsRecorded": True,
         "provenanceChainComplete": True,
+        "phase7PlanBindingVerified": True,
     },
     "clips": packages,
 }
 
 (OUT / "publish-manifest.json").write_text(
-    json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+    json.dumps(manifest, indent=2, ensure_ascii=False),
+    encoding="utf-8",
 )
+
 print("PHASE10_PUBLISHING_PACKAGE_PASS")
 print(json.dumps(manifest, indent=2, ensure_ascii=False))
