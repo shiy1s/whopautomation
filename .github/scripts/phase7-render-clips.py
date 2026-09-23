@@ -1,3 +1,202 @@
+ow_dispatch:
+    inputs:
+      video_url:
+        description: "Google Drive URL of the official campaign video"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  create-clips:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Enforce campaign execution guard
+        run: |
+set -euo pipefail
+# This workflow creates review artifacts only. It has no publishing step.
+python campaign_guard.py --mode dry-run
+
+      - name: Download official campaign video
+        run: |
+set -euo pipefail
+python -m pip install -q --disable-pip-version-check gdown
+gdown "${{ inputs.video_url }}" -O source.mp4
+test -s source.mp4
+
+      - name: Install FFmpeg
+        run: |
+set -euo pipefail
+sudo apt-get update -qq
+sudo apt-get install -y -qq ffmpeg
+ffmpeg -hide_banner -filters | grep -E 'drawtext|boxblur' >/dev/null
+ffmpeg -version | head -1
+
+      - name: Install Gemini SDK
+        run: python -m pip install -q --disable-pip-version-check google-genai pydantic
+
+      - name: Check source video
+        run: |
+set -euo pipefail
+ffprobe -v error -show_entries format=duration -show_entries stream=codec_name,width,height,r_frame_rate -of default=noprint_wrappers=1 source.mp4
+
+      - name: AI analysis and clip planning
+        env:
+GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+set -euo pipefail
+cat > analyze_video.py <<'PY'
+import json, os, subprocess, time
+from typing import List
+from pydantic import BaseModel
+from google import genai
+from google.genai import types
+
+class Moment(BaseModel):
+    start: str
+    end: str
+    description: str
+    score: int
+class Segment(BaseModel):
+    start: str
+    end: str
+    purpose: str
+    has_burned_in_captions: bool
+class Caption(BaseModel):
+    start: str
+    end: str
+    text: str
+class ClipCandidate(BaseModel):
+    segments: List[Segment]
+    title: str
+    hook: str
+    reason: str
+    score: int
+class ClipAnalysis(BaseModel):
+    moments: List[Moment]
+    clips: List[ClipCandidate]
+    captions: List[Caption]
+
+def sec(t):
+    h,m,s=t.split(':'); return int(h)*3600+int(m)*60+float(s)
+def stamp(x):
+    x=max(0,float(x)); h=int(x//3600); m=int((x%3600)//60); s=x-h*3600-m*60
+    return f'{h:02d}:{m:02d}:{s:06.3f}'
+
+duration=float(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1','source.mp4']).decode())
+client=genai.Client(api_key=os.environ['GEMINI_API_KEY'])
+video=client.files.upload(file='source.mp4')
+for _ in range(90):
+    video=client.files.get(name=video.name)
+    state=getattr(video.state,'name',str(video.state))
+    print('Gemini video state:',state)
+    if state=='ACTIVE': break
+    if state=='FAILED': raise RuntimeError('Gemini failed to process source video')
+    time.sleep(8)
+else: raise TimeoutError('Gemini video processing timed out')
+
+prompt=f'''Act as the senior viral short-form editor. Analyze the COMPLETE official Call of Duty RICOCHET Enforcement campaign video ({duration:.3f}s).
+
+Find 8-15 distinct high-value moments across the ENTIRE video. Prioritize anti-cheat/RICOCHET enforcement, cheat providers or sellers, legal or cease-and-desist notices, confrontations, reactions, reveals, strong statements, visual proof and satisfying payoffs. Avoid filler and repetition.
+
+Build 3-5 genuinely different Shorts. Each may contain 1-4 separate source segments. Non-contiguous cuts are encouraged when they improve storytelling. A useful structure is hook -> setup -> escalation -> strongest moment -> payoff -> concise ending. Intro/setup/outro are allowed when useful. Do not force cuts if one continuous moment is stronger.
+
+HARD EDIT RULES: source order must remain chronological; each segment 2.5-20s normally and never over 45s; total 12-55s, preferably 20-45s; remove dead air and repetition; never invent dialogue/events/timestamps; never create a misleading causal or simultaneous impression; different packages need different core moments. Score each package 1-100 for hook, clarity, pacing, payoff, uniqueness, campaign relevance and replay/share potential.
+
+CAPTION DUPLICATION RULE — VERY IMPORTANT: Before deciding on generated captions, visually inspect the actual selected source segments for captions/subtitles that are already burned into the video. This includes large dialogue subtitles, speaker captions, auto-generated subtitles, and styled captions. Ignore tiny timestamps, watermarks, logos, signs and ordinary scene text. Set has_burned_in_captions=true for a segment if readable dialogue captions/subtitles are already present anywhere in that segment. If captions are present, they must be preserved and the automation must NOT add a second caption layer. Be conservative: if you can clearly see existing dialogue subtitles, mark true.
+
+CAPTIONS: If a selected segment has no burned-in dialogue captions, transcribe only actual spoken dialogue for that segment using absolute source timestamps. Keep lines short (2-8 words, about 28 characters when practical). Do not invent or paraphrase. The renderer will automatically skip generated captions for segments marked as already captioned.
+
+Return the requested structured data with HH:MM:SS.mmm timestamps.'''
+
+analysis=None; last_error=None
+for model in ['gemini-3.7-flash','gemini-3.6-flash','gemini-3.5-flash-lite']:
+    for attempt in range(1,4):
+        try:
+            print(f'Analysis {model} attempt {attempt}/3')
+            r=client.models.generate_content(model=model,contents=[video,prompt],config=types.GenerateContentConfig(response_mime_type='application/json',response_schema=ClipAnalysis))
+            analysis=ClipAnalysis.model_validate_json(r.text); break
+        except Exception as e:
+            last_error=e; print('Gemini error:',e)
+            if attempt<3: time.sleep(8*(2**(attempt-1)))
+    if analysis: break
+if not analysis: raise RuntimeError(f'Gemini analysis failed on all fallback models: {last_error}')
+
+moments=[]
+for m in analysis.moments:
+    try:
+        a,b=sec(m.start),sec(m.end)
+        if 0<=a<b<=duration and 1.5<=b-a<=30:
+            moments.append({'start':stamp(a),'end':stamp(b),'start_sec':a,'end_sec':b,'description':m.description,'score':max(1,min(100,int(m.score)))})
+    except: pass
+moments.sort(key=lambda x:x['score'],reverse=True)
+
+candidates=[]
+for c in analysis.clips:
+    try:
+        segs=[]
+        for s in c.segments:
+            a,b=sec(s.start),sec(s.end)
+            if not (0<=a<b<=duration and 2.5<=b-a<=45): raise ValueError()
+            segs.append({'start':stamp(a),'end':stamp(b),'start_sec':a,'end_sec':b,'purpose':s.purpose,'has_burned_in_captions':bool(s.has_burned_in_captions)})
+        if not 1<=len(segs)<=4: continue
+        if any(segs[i]['start_sec']>=segs[i+1]['start_sec'] for i in range(len(segs)-1)): continue
+        total=sum(x['end_sec']-x['start_sec'] for x in segs)
+        if not 12<=total<=55: continue
+        candidates.append({'segments':segs,'duration_seconds':round(total,3),'title':c.title,'hook':c.hook,'reason':c.reason,'score':max(1,min(100,int(c.score)))})
+    except: pass
+candidates.sort(key=lambda x:x['score'],reverse=True)
+
+selected=[]
+for c in candidates:
+    if c['score']<60 and len(selected)>=2: continue
+    duplicate=False
+    for e in selected:
+        overlap=sum(max(0,min(a['end_sec'],b['end_sec'])-max(a['start_sec'],b['start_sec'])) for a in c['segments'] for b in e['segments'])
+        if overlap/min(c['duration_seconds'],e['duration_seconds'])>=0.60: duplicate=True; break
+    if not duplicate: selected.append(c)
+    if len(selected)>=5: break
+if not selected: raise RuntimeError('No valid clip packages returned by Gemini')
+
+captions=[]
+for cap in analysis.captions:
+    try:
+        a,b=sec(cap.start),sec(cap.end); text=' '.join(str(cap.text).split())
+        if 0<=a<b<=duration and text and len(text)<=120: captions.append({'start_sec':a,'end_sec':b,'text':text})
+    except: pass
+captions.sort(key=lambda x:x['start_sec'])
+
+clips=[]
+for i,c in enumerate(selected,1):
+    clips.append({'rank':i,'segments':[{'start':s['start'],'end':s['end'],'purpose':s['purpose'],'has_burned_in_captions':s['has_burned_in_captions']} for s in c['segments']],'duration_seconds':c['duration_seconds'],'title':c['title'],'hook':c['hook'],'reason':c['reason'],'score':c['score']})
+with open('clips.json','w',encoding='utf-8') as f: json.dump({'source_duration_seconds':duration,'top_moments':moments[:15],'captions':captions,'clips':clips},f,indent=2,ensure_ascii=False)
+print(f'Found {len(moments)} moments, selected {len(clips)} clips, {len(captions)} caption lines')
+for c in clips: print('Clip',c['rank'],'segments captioned:',[s['has_burned_in_captions'] for s in c['segments']])
+PY
+python analyze_video.py
+
+      - name: Verify campaign assets
+        run: |
+set -euo pipefail
+test -s Call_of_Duty_Wordmark_Stacked_CMYK_White.png
+test -s campaign_text.txt
+test -f /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+
+      - name: Render clips with robust two-pass FFmpeg pipeline
+        timeout-minutes: 30
+        run: |
+set -euo pipefail
+rm -rf output work caption_files
+mkdir -p output work caption_files
+cat > render_clips.py <<'PY'
 import json, os, subprocess
 with open('clips.json',encoding='utf-8') as f: data=json.load(f)
 logo='Call_of_Duty_Wordmark_Stacked_CMYK_White.png'
@@ -73,3 +272,4 @@ for clip in data['clips']:
     cmd+=['-c:a','aac','-b:a','128k'] if audio else ['-an']
     cmd+=['-movflags','+faststart','-shortest',final]
     run(cmd,f'Final render clip {idx}')
+PY
