@@ -12,7 +12,7 @@ Phase 11 publishes only an exact, verified Phase 10 publishing package.
 Optional repository variable:
 - YOUTUBE_PRIVACY_STATUS (defaults to public)
 
-The OAuth grant must include `https://www.googleapis.com/auth/youtube.upload`.
+The OAuth grant must include `https://www.googleapis.com/auth/youtube.upload`. Phase 11 preflight validates the refresh-token exchange, token audience, token expiry, and this upload scope. It intentionally does not call `channels.list` because that endpoint requires broader account/channel authorization than the upload-only grant; the real `videos.insert` operation is the authoritative YouTube publishing check.
 
 ### TikTok
 Preferred:
