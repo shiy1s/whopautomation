@@ -1,0 +1,127 @@
+name: Phase 8 Video QC
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase7_run_id:
+        description: "Successful Phase 7 GitHub Actions run ID"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  phase8:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Validate Phase 7 run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.phase7_run_id }}
+        run: |
+          set -euo pipefail
+          test -n "$RUN_ID"
+          CONCLUSION=$(gh run view "$RUN_ID" --repo "${{ github.repository }}" --json conclusion --jq '.conclusion')
+          test "$CONCLUSION" = "success"
+
+      - name: Download exact Phase 7 rendered clips
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.phase7_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p phase7-clips
+          gh run download "$RUN_ID" --repo "${{ github.repository }}" --name professional-cod-clips-phase7 --dir phase7-clips
+          test -s phase7-clips/clip_01.mp4
+          test -s phase7-clips/clip_02.mp4
+
+      - name: Download exact Phase 7 QA and provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.phase7_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p phase7-qa
+          gh run download "$RUN_ID" --repo "${{ github.repository }}" --name phase7-render-qa --dir phase7-qa
+          test -s phase7-qa/phase7-render-manifest.json
+          test -s phase7-qa/quality_report.json
+          test -s phase7-qa/phase7-source-manifest.json
+
+      - name: Install QC dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg python3-pip
+          python3 -m pip install --disable-pip-version-check --no-cache-dir pillow==11.3.0
+          ffmpeg -version | head -1
+          ffprobe -version | head -1
+          python3 -c "from PIL import Image; print('Pillow', Image.__version__)"
+
+      - name: Validate Phase 7 artifact contract
+        env:
+          PHASE7_RUN_ID: ${{ inputs.phase7_run_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import os
+
+          m=json.loads(Path("phase7-qa/phase7-render-manifest.json").read_text())
+          q=json.loads(Path("phase7-qa/quality_report.json").read_text())
+
+          if m.get("complete") is not True:
+              raise SystemExit("Phase 7 manifest is not complete")
+          if m.get("originalAudioPreserved") is not True:
+              raise SystemExit("Phase 7 manifest does not confirm original audio")
+          if m.get("campaignBrandingApplied") is not True:
+              raise SystemExit("Phase 7 manifest does not confirm branding")
+          if len(m.get("plans", [])) != 2:
+              raise SystemExit("Phase 7 manifest must contain exactly 2 plans")
+          if len(m.get("sourceAssets", [])) != 2:
+              raise SystemExit("Phase 7 manifest must contain exactly 2 source assets")
+          if len(q) != 2:
+              raise SystemExit("Phase 7 quality report must contain exactly 2 clips")
+          if int(os.environ["PHASE7_RUN_ID"]) <= 0:
+              raise SystemExit("Invalid Phase 7 run ID")
+
+          print("PHASE7_ARTIFACT_CONTRACT_PASS")
+          PY
+
+      - name: Run deterministic Phase 8 video QC
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/phase8-video-qc.py
+
+      - name: Bind Phase 8 manifest to exact Phase 7 run
+        env:
+          PHASE7_RUN_ID: ${{ inputs.phase7_run_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          p=Path("phase8-qc/phase8-video-qc-manifest.json")
+          data=json.loads(p.read_text())
+          data["phase7RunId"]=int(os.environ["PHASE7_RUN_ID"])
+          p.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+          print("PHASE8_PROVENANCE_BINDING_PASS")
+          PY
+
+      - name: Upload Phase 8 QC evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-video-qc
+          path: |
+            phase8-qc/phase8-video-qc-manifest.json
+            phase8-qc/sampled-frames/**/*.png
+          if-no-files-found: error
+          retention-days: 30
