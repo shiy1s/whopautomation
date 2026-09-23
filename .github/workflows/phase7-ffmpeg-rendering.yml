@@ -80,10 +80,28 @@ jobs:
           m=json.loads(Path("phase7-source-manifest.json").read_text())
           if m.get("complete") is not True or len(m.get("assets",[])) != 2:
               raise SystemExit("Phase 7 source manifest contract failed")
+          import subprocess
           for a in m["assets"]:
               p=Path(a["path"])
               if not p.is_file() or p.stat().st_size < 100000:
                   raise SystemExit(f"Missing/invalid source file: {p}")
+              probe=json.loads(subprocess.check_output([
+                  "ffprobe","-v","error",
+                  "-show_entries","format=duration",
+                  "-show_entries","stream=codec_type,width,height",
+                  "-of","json",str(p)
+              ]))
+              streams=probe.get("streams", [])
+              video=next((s for s in streams if s.get("codec_type")=="video"), None)
+              audio=any(s.get("codec_type")=="audio" for s in streams)
+              if video is None or not audio:
+                  raise SystemExit(f"{p}: source must contain video and original audio")
+              if int(video.get("width") or 0) != 1920 or int(video.get("height") or 0) != 1080:
+                  raise SystemExit(f"{p}: unexpected source resolution")
+              actual=float(probe["format"]["duration"])
+              expected=float(a["durationSeconds"])
+              if abs(actual-expected) > 0.25:
+                  raise SystemExit(f"{p}: duration mismatch manifest={expected} actual={actual}")
           print("PHASE7_SOURCE_VALIDATION_PASS")
           PY
 
