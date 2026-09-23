@@ -55,7 +55,7 @@ def boundary_from_evidence(frames, first_idx, last_idx, duration):
         end_basis = {
             "method": "source_end_after_last_evidence_frame",
             "lastEvidenceFrameIndex": last_idx,
-            "lastEvidenceTimestampSeconds": float(last["timestampSeconds"]),
+            "lastEvidenceTimestampSeconds": float(last_frame["timestampSeconds"]),
         }
 
     start = max(0.0, min(start, float(duration)))
