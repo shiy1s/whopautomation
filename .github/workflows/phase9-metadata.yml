@@ -1,0 +1,143 @@
+name: Phase 9 Metadata
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase8_run_id:
+        description: "Successful Phase 8 GitHub Actions run ID"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  phase9:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Validate Phase 8 run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.phase8_run_id }}
+        run: |
+          set -euo pipefail
+          test -n "$RUN_ID"
+          CONCLUSION=$(gh run view "$RUN_ID" --repo "${{ github.repository }}" --json conclusion --jq '.conclusion')
+          test "$CONCLUSION" = "success"
+
+      - name: Download exact Phase 8 QC artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.phase8_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p phase8-qc
+          gh run download "$RUN_ID" --repo "${{ github.repository }}" --name phase8-video-qc --dir phase8-qc
+          test -s phase8-qc/phase8-video-qc-manifest.json
+
+      - name: Validate exact Phase 8 provenance
+        env:
+          PHASE8_RUN_ID: ${{ inputs.phase8_run_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          p = Path("phase8-qc/phase8-video-qc-manifest.json")
+          m = json.loads(p.read_text(encoding="utf-8"))
+
+          if m.get("complete") is not True or m.get("status") != "pass":
+              raise SystemExit("Phase 8 manifest is not a passing complete manifest.")
+          if m.get("sourcePhase") != 7:
+              raise SystemExit("Phase 8 source phase is not 7.")
+          if m.get("phase7RunId") != 35838635052:
+              raise SystemExit("Phase 8 is not bound to the verified Phase 7 run 35838635052.")
+          if m.get("checks", {}).get("allDeterministicChecksPass") is not True:
+              raise SystemExit("Phase 8 deterministic checks did not pass.")
+          if len(m.get("clipReports", [])) != 2:
+              raise SystemExit("Phase 8 must contain exactly two clip reports.")
+
+          run_id = int(os.environ["PHASE8_RUN_ID"])
+          if run_id <= 0:
+              raise SystemExit("Invalid Phase 8 run ID.")
+
+          print("PHASE8_PROVENANCE_CONTRACT_PASS")
+          PY
+
+      - name: Run deterministic Phase 9 metadata generation
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/phase9-metadata.py
+
+      - name: Bind Phase 9 manifest to exact Phase 8 run
+        env:
+          PHASE8_RUN_ID: ${{ inputs.phase8_run_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          p = Path("phase9-metadata/phase9-metadata-manifest.json")
+          data = json.loads(p.read_text(encoding="utf-8"))
+          data["phase8RunId"] = int(os.environ["PHASE8_RUN_ID"])
+          p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+          for clip in data["clips"]:
+              path = Path("phase9-metadata") / (Path(clip["file"]).stem + ".json")
+              item = json.loads(path.read_text(encoding="utf-8"))
+              item["phase8RunId"] = int(os.environ["PHASE8_RUN_ID"])
+              path.write_text(json.dumps(item, indent=2, ensure_ascii=False), encoding="utf-8")
+
+          print("PHASE9_PROVENANCE_BINDING_PASS")
+          PY
+
+      - name: Final Phase 9 artifact validation
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("phase9-metadata")
+          manifest = json.loads((root / "phase9-metadata-manifest.json").read_text(encoding="utf-8"))
+
+          if manifest.get("complete") is not True or manifest.get("status") != "pass":
+              raise SystemExit("Phase 9 manifest is not complete/pass.")
+          if len(manifest.get("clips", [])) != 2:
+              raise SystemExit("Phase 9 must contain exactly two clips.")
+          if manifest.get("metadataPolicy", {}).get("aiGeneration") is not False:
+              raise SystemExit("Phase 9 must remain deterministic.")
+
+          for clip in manifest["clips"]:
+              if not clip.get("youtubeShorts", {}).get("title"):
+                  raise SystemExit("YouTube title missing.")
+              for platform in ("youtubeShorts", "tiktok", "instagram"):
+                  obj = clip[platform]
+                  text = obj.get("description", obj.get("caption", ""))
+                  if not text.startswith("#Ad\n"):
+                      raise SystemExit(f"{clip['file']}: #Ad is not first separate line for {platform}.")
+                  if "@Callofduty" not in text:
+                      raise SystemExit(f"{clip['file']}: @Callofduty missing for {platform}.")
+                  if len(obj.get("hashtags", [])) > 3:
+                      raise SystemExit(f"{clip['file']}: too many additional hashtags.")
+
+          print("PHASE9_ARTIFACT_VALIDATION_PASS")
+          PY
+
+      - name: Upload Phase 9 metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase9-metadata
+          path: phase9-metadata
+          if-no-files-found: error
+          retention-days: 30
