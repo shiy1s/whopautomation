@@ -101,6 +101,29 @@ jobs:
           python .github/scripts/phase7-prepare-render-jobs.py
           test -s render-jobs/01/source.mp4
           test -s render-jobs/02/source.mp4
+          test -s render-jobs/01/clips.json
+          test -s render-jobs/02/clips.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for d in ("01", "02"):
+              p=Path("render-jobs")/d/"clips.json"
+              data=json.loads(p.read_text())
+              clips=data.get("clips", [])
+              if len(clips) != 1:
+                  raise SystemExit(f"{p}: expected exactly one render clip")
+              clip=clips[0]
+              segs=clip.get("segments", [])
+              if len(segs) != 1:
+                  raise SystemExit(f"{p}: expected exactly one source segment")
+              def sec(ts):
+                  h,m,s=ts.split(":")
+                  return int(h)*3600+int(m)*60+float(s)
+              duration=sec(segs[0]["end"])-sec(segs[0]["start"])
+              if not 10 <= duration <= 60:
+                  raise SystemExit(f"{p}: renderer duration outside 10-60s: {duration}")
+          print("PHASE7_RENDER_JOB_VALIDATION_PASS")
+          PY
 
       - name: Render clip 01 with proven FFmpeg renderer
         working-directory: render-jobs/01
