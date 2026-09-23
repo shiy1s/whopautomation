@@ -12,7 +12,7 @@ def jfile(p): return json.loads(Path(p).read_text())
 def sha(p):
  h=hashlib.sha256()
  with open(p,"rb") as f:
-  for b in iter(lambda:f.read(1024*1024),b): h.update(b)
+  for b in iter(lambda:f.read(1024*1024),b""): h.update(b)
  return h.hexdigest()
 def api(url,method="GET",body=None,token=None):
  d=None if body is None else json.dumps(body).encode()
