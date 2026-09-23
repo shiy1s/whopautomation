@@ -20,7 +20,7 @@ def frame_map(analysis):
 def boundary_from_evidence(frames, first_idx, last_idx, duration):
     by_idx = frame_map({"frames": frames})
     first = by_idx[first_idx]
-    last = by_idx[last]
+    last_frame = by_idx[last_idx]
 
     if first_idx > 1:
         prev = by_idx[first_idx - 1]
@@ -42,11 +42,11 @@ def boundary_from_evidence(frames, first_idx, last_idx, duration):
 
     if last_idx < len(frames):
         nxt = by_idx[last_idx + 1]
-        end = round((float(last["timestampSeconds"]) + float(nxt["timestampSeconds"])) / 2, 3)
+        end = round((float(last_frame["timestampSeconds"]) + float(nxt["timestampSeconds"])) / 2, 3)
         end_basis = {
             "method": "midpoint_between_last_evidence_and_next_frame",
             "lastEvidenceFrameIndex": last_idx,
-            "lastEvidenceTimestampSeconds": float(last["timestampSeconds"]),
+            "lastEvidenceTimestampSeconds": float(last_frame["timestampSeconds"]),
             "nextFrameIndex": last_idx + 1,
             "nextTimestampSeconds": float(nxt["timestampSeconds"]),
         }
