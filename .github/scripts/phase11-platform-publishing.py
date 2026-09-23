@@ -80,15 +80,28 @@ def youtube_access_token():
 
 def youtube_preflight():
  token,scope=youtube_access_token()
- q=urllib.parse.urlencode({"part":"id,snippet","mine":"true"})
- d=http_json("https://www.googleapis.com/youtube/v3/channels?"+q,"GET",token=token)
- items=d.get("items",[])
- if len(items)!=1: die(f"YouTube channel authorization check returned {len(items)} channels; expected exactly one")
- ch=items[0]
- channel_id=ch.get("id")
- title=ch.get("snippet",{}).get("title")
- if not channel_id: die("YouTube channel authorization check returned no channel ID")
- print(json.dumps({"youtubeOAuth":"pass","youtubeApi":"pass","channelId":channel_id,"channelTitle":title,"scopeChecked":"youtube.upload"}))
+ # youtube.upload is intentionally the least-privilege scope used by the real
+ # videos.insert publisher. It does not authorize channels.list, so channel
+ # discovery must not be used as a preflight check.
+ q=urllib.parse.urlencode({"access_token":token})
+ info=http_json("https://oauth2.googleapis.com/tokeninfo?"+q)
+ if info.get("aud") and info.get("aud")!=os.environ["YOUTUBE_CLIENT_ID"]:
+  die("YouTube access token audience does not match YOUTUBE_CLIENT_ID")
+ token_scope=set((info.get("scope") or "").split())
+ required="https://www.googleapis.com/auth/youtube.upload"
+ if required not in token_scope:
+  die("YouTube access token does not contain youtube.upload scope")
+ expires=info.get("expires_in")
+ try:
+  if expires is not None and int(expires)<=0: die("YouTube access token is expired")
+ except (TypeError,ValueError):
+  die("YouTube tokeninfo returned an invalid expires_in value")
+ print(json.dumps({
+  "youtubeOAuth":"pass",
+  "youtubeToken":"pass",
+  "youtubeApi":"upload_scope_verified",
+  "scopeChecked":"youtube.upload"
+ }))
 
 def youtube(c):
  from google.oauth2.credentials import Credentials
