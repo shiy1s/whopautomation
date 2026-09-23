@@ -288,7 +288,7 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
   const manifest = {
     complete: true,
     videoAssetCount: results.length,
-    results,
+    assets: results,
     createdAt: new Date().toISOString()
   };
 
