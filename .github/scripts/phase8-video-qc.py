@@ -239,6 +239,10 @@ for video in videos:
 
     min_logo = min(logo_coverages)
     min_text = min(text_coverages)
+    evidence_indices = {0, len(frame_paths) // 2, len(frame_paths) - 1}
+    for idx, fp in enumerate(frame_paths):
+        if idx not in evidence_indices:
+            fp.unlink(missing_ok=True)
     checks["logoSampledVisible"] = min_logo >= OVERLAY_THRESHOLD
     checks["requiredTextSampledVisible"] = min_text >= OVERLAY_THRESHOLD
 
@@ -271,6 +275,7 @@ for video in videos:
             "minimumLogoCoverage": round(min_logo, 4),
             "minimumRequiredTextCoverage": round(min_text, 4),
             "threshold": OVERLAY_THRESHOLD,
+            "evidenceFramesRetained": len(evidence_indices),
         },
         "blackAndFreezeAnomalies": anomalies,
         "audioAnalysis": audio,
