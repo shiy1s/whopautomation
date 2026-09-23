@@ -59,7 +59,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg python3-pip
-          python3 -m pip install --disable-pip-version-check --no-cache-dir pillow==11.3.0
+          python3 -m pip install --disable-pip-version-check --no-cache-dir pillow==11.3.0 numpy==2.3.3
           ffmpeg -version | head -1
           ffprobe -version | head -1
           python3 -c "from PIL import Image; print('Pillow', Image.__version__)"
