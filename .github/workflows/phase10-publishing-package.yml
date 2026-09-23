@@ -23,8 +23,8 @@ jobs:
 
       - name: Validate Phase 9 run
         env:
-          GH_TOKEN: \${{ github.token }}
-          RUN_ID: \${{ inputs.phase9_run_id }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.phase9_run_id }}
         run: |
           set -euo pipefail
           test -n "$RUN_ID"
@@ -32,24 +32,24 @@ jobs:
             ''|*[!0-9]*) echo "Phase 9 run ID must be numeric."; exit 1 ;;
           esac
           test "$RUN_ID" -gt 0
-          CONCLUSION=$(gh run view "$RUN_ID" --repo "\${{ github.repository }}" --json conclusion --jq '.conclusion')
+          CONCLUSION=$(gh run view "$RUN_ID" --repo "${{ github.repository }}" --json conclusion --jq '.conclusion')
           test "$CONCLUSION" = "success"
 
       - name: Download exact Phase 9 metadata artifact
         env:
-          GH_TOKEN: \${{ github.token }}
-          RUN_ID: \${{ inputs.phase9_run_id }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.phase9_run_id }}
         run: |
           set -euo pipefail
           mkdir -p phase9-metadata
-          gh run download "$RUN_ID" --repo "\${{ github.repository }}" --name phase9-metadata --dir phase9-metadata
+          gh run download "$RUN_ID" --repo "${{ github.repository }}" --name phase9-metadata --dir phase9-metadata
           test -s phase9-metadata/phase9-metadata-manifest.json
           test -s phase9-metadata/clip_01.json
           test -s phase9-metadata/clip_02.json
 
       - name: Validate Phase 9 to Phase 7 provenance
         env:
-          PHASE9_RUN_ID: \${{ inputs.phase9_run_id }}
+          PHASE9_RUN_ID: ${{ inputs.phase9_run_id }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -89,28 +89,28 @@ jobs:
           PY
 
           PHASE7_RUN_ID=$(python3 -c 'import json; print(json.load(open("phase9-metadata/phase9-metadata-manifest.json"))["phase7RunId"])')
-          CONCLUSION=$(gh run view "$PHASE7_RUN_ID" --repo "\${{ github.repository }}" --json conclusion --jq '.conclusion')
+          CONCLUSION=$(gh run view "$PHASE7_RUN_ID" --repo "${{ github.repository }}" --json conclusion --jq '.conclusion')
           test "$CONCLUSION" = "success"
 
       - name: Download exact Phase 7 rendered clips
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           PHASE7_RUN_ID=$(python3 -c 'import json; print(json.load(open("phase9-metadata/phase9-metadata-manifest.json"))["phase7RunId"])')
           mkdir -p phase7-clips
-          gh run download "$PHASE7_RUN_ID" --repo "\${{ github.repository }}" --name professional-cod-clips-phase7 --dir phase7-clips
+          gh run download "$PHASE7_RUN_ID" --repo "${{ github.repository }}" --name professional-cod-clips-phase7 --dir phase7-clips
           test -s phase7-clips/clip_01.mp4
           test -s phase7-clips/clip_02.mp4
 
       - name: Download exact Phase 7 render QA
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           PHASE7_RUN_ID=$(python3 -c 'import json; print(json.load(open("phase9-metadata/phase9-metadata-manifest.json"))["phase7RunId"])')
           mkdir -p phase7-qa
-          gh run download "$PHASE7_RUN_ID" --repo "\${{ github.repository }}" --name phase7-render-qa --dir phase7-qa
+          gh run download "$PHASE7_RUN_ID" --repo "${{ github.repository }}" --name phase7-render-qa --dir phase7-qa
           test -s phase7-qa/phase7-render-manifest.json
           test -s phase7-qa/quality_report.json
 
@@ -177,7 +177,7 @@ jobs:
 
       - name: Bind Phase 10 package to exact Phase 9 run
         env:
-          PHASE9_RUN_ID: \${{ inputs.phase9_run_id }}
+          PHASE9_RUN_ID: ${{ inputs.phase9_run_id }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -194,7 +194,7 @@ jobs:
 
       - name: Final Phase 10 package validation
         env:
-          PHASE9_RUN_ID: \${{ inputs.phase9_run_id }}
+          PHASE9_RUN_ID: ${{ inputs.phase9_run_id }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
