@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 MIN_DURATION = 10.0
+MAX_RENDER_DURATION = 60.0
 
 
 def load(path):
@@ -111,6 +112,19 @@ def main():
             frames, first_idx, last_idx, float(analysis["durationSeconds"])
         )
 
+        # The proven Phase 7 renderer has a hard 60s quality-gate ceiling.
+        # Phase 6 must never emit a plan that the authoritative renderer will reject.
+        if end - start > MAX_RENDER_DURATION:
+            capped_end = round(start + MAX_RENDER_DURATION, 3)
+            end_basis = {
+                "method": "renderer_max_duration_cap",
+                "previousEndSeconds": end,
+                "maxRenderDurationSeconds": MAX_RENDER_DURATION,
+                "cappedEndSeconds": capped_end,
+                "underlyingEvidenceBasis": end_basis,
+            }
+            end = capped_end
+
         # Phase 6 is allowed to refine the Phase 5 evidence window, but it must never
         # extend beyond the source media or below the campaign minimum duration.
         if start < candidate["startSeconds"] - 0.001 or end > candidate["endSeconds"] + 0.001:
@@ -144,6 +158,7 @@ def main():
                 "onScreenTextRequired": rules["rules"]["onScreenText"]["required"],
                 "onScreenTextOptions": rules["rules"]["onScreenText"]["requiredLines"],
                 "minimumDurationSeconds": MIN_DURATION,
+                "maximumRenderDurationSeconds": MAX_RENDER_DURATION,
             },
             "phase7Note": "Renderer must use these planned boundaries as inputs; do not rewrite the proven FFmpeg renderer.",
         }
@@ -171,6 +186,7 @@ def main():
         },
         "planningPolicy": {
             "minimumDurationSeconds": MIN_DURATION,
+            "maximumRenderDurationSeconds": MAX_RENDER_DURATION,
             "boundaryMethod": "sampled-evidence-midpoint",
             "audioAnalyzed": False,
             "phase6DoesNotRender": True,
