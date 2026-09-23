@@ -113,9 +113,9 @@ def main():
   miss=[x for x in req[p] if not os.getenv(x)]
   if p=="tiktok" and os.getenv("TIKTOK_ACCESS_TOKEN"): miss=[]
   if miss: die(f"{p} credential preflight failed: missing {', '.join(miss)}")
+ if os.getenv("CONFIRM_PUBLISH")!="PUBLISH": die("Publishing locked: set confirm_publish=PUBLISH")
  if os.getenv("PHASE11_PREFLIGHT")=="1":
   print(json.dumps({"preflight":"pass","platforms":PLATFORMS,"clipCount":2,"phase9RunId":m["phase9RunId"]})); return
- if os.getenv("CONFIRM_PUBLISH")!="PUBLISH": die("Publishing locked: set confirm_publish=PUBLISH")
  l,ls=ledger()
  for p in PLATFORMS:
   for c in m["clips"]:
