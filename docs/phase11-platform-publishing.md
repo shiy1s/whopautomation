@@ -55,3 +55,6 @@ TikTok uses Content Posting API Direct Post with a local file upload.
 Instagram uses the Reels container -> status check -> publish flow and requires a publicly accessible media URL during container creation.
 
 Phase 11 does not create Stories or paid boosts and does not alter campaign metadata.
+
+### GitHub publication ledger authentication
+The publication ledger is written through the GitHub Contents API using the workflow `GITHUB_TOKEN` (`GH_TOKEN` in the worker environment) with `contents: write`. Ledger reads and writes must both pass that token explicitly; public-repository reads may work anonymously, but authenticated writes do not.
