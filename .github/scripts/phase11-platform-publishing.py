@@ -52,7 +52,7 @@ def manifest():
 def ledger():
  u=f"https://api.github.com/repos/{REPO}/contents/state/phase11-publication-ledger.json"
  try:
-  d=api(u); return json.loads(base64.b64decode(d["content"]).decode()),d["sha"]
+  d=api(u,token=TOKEN); return json.loads(base64.b64decode(d["content"]).decode()),d["sha"]
  except RuntimeError as e:
   if "HTTP 404" in str(e): return {"schemaVersion":1,"publications":[]},None
   raise
@@ -60,7 +60,7 @@ def save_ledger(l,oldsha):
  body={"message":"Record Phase 11 publication","content":base64.b64encode((json.dumps(l,indent=2,sort_keys=True)+"\n").encode()).decode()}
  if oldsha: body["sha"]=oldsha
  u=f"https://api.github.com/repos/{REPO}/contents/state/phase11-publication-ledger.json"
- return api(u,"PUT",body)["content"]["sha"]
+ return api(u,"PUT",body,token=TOKEN)["content"]["sha"]
 def duplicate(l,c,p):
  return any(x.get("clipFile")==c["file"] and x.get("platform")==p and x.get("videoSha256")==c["sha256"] and x.get("status")=="published" for x in l.get("publications",[]))
 def youtube_access_token():
@@ -164,6 +164,7 @@ def main():
    if duplicate(l,c,p): print(f"SKIP duplicate: {p} {c['file']}"); continue
    print(f"PUBLISH {p} {c['file']}")
    r=youtube(c) if p=="youtube" else tiktok(c) if p=="tiktok" else instagram(c)
+   print(json.dumps({"publicationResult":r,"clipFile":c["file"],"platform":p}))
    l.setdefault("publications",[]).append({"clipFile":c["file"],"platform":p,"videoSha256":c["sha256"],"publishedAtUtc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"status":"published","remote":r})
    ls=save_ledger(l,ls); print(json.dumps(r))
  print("PHASE11_COMPLETE")
