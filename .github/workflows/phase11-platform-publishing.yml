@@ -75,6 +75,11 @@ jobs:
           mkdir -p phase10
           gh run download "$PHASE10_RUN_ID" --repo "$GITHUB_REPOSITORY" --name phase10-publishing-package --dir phase10
 
+      - name: Install pinned Phase 11 Python dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -r .github/phase11-requirements.txt
+
       - name: Phase 11 credential and package preflight
         env:
           PHASE11_PREFLIGHT: "1"
