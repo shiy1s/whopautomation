@@ -39,6 +39,9 @@ for rank, p in enumerate(plans, 1):
 
     job = root / f"{rank:02d}"
     job.mkdir()
+    (job / "work").mkdir()
+    (job / "caption_files").mkdir()
+    (job / "output").mkdir()
     shutil.copy2(source, job / "source.mp4")
     shutil.copy2(logo, job / logo.name)
     shutil.copy2(campaign_text, job / campaign_text.name)
