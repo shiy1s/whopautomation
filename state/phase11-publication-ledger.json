@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "publications": [
+    {
+      "clipFile": "clip_01.mp4",
+      "platform": "youtube",
+      "videoSha256": "d6418ecd305d86fdeff14f443940bcb33db7bc2999cd316d7ed2b57e185028dd",
+      "publishedAtUtc": "2026-09-23T17:25:00Z",
+      "status": "published",
+      "remote": {
+        "videoId": "M7mEPjO60No"
+      },
+      "recovery": {
+        "recoveredFromYouTubeStudio": true,
+        "phase10RunId": "35850459530"
+      }
+    }
+  ]
+}
