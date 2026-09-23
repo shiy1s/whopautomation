@@ -1,0 +1,219 @@
+name: Phase 10 Publishing Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase9_run_id:
+        description: "Successful Phase 9 GitHub Actions run ID"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  phase10:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Validate Phase 9 run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.phase9_run_id }}
+        run: |
+          set -euo pipefail
+          test -n "$RUN_ID"
+          case "$RUN_ID" in
+            ''|*[!0-9]*) echo "Phase 9 run ID must be numeric."; exit 1 ;;
+          esac
+          test "$RUN_ID" -gt 0
+          CONCLUSION=$(gh run view "$RUN_ID" --repo "${{ github.repository }}" --json conclusion --jq '.conclusion')
+          test "$CONCLUSION" = "success"
+
+      - name: Download exact Phase 9 metadata artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.phase9_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p phase9-metadata
+          gh run download "$RUN_ID" --repo "${{ github.repository }}" --name phase9-metadata --dir phase9-metadata
+          test -s phase9-metadata/phase9-metadata-manifest.json
+          test -s phase9-metadata/clip_01.json
+          test -s phase9-metadata/clip_02.json
+
+      - name: Validate Phase 9 to Phase 7 provenance
+        env:
+          PHASE9_RUN_ID: ${{ inputs.phase9_run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          p = Path("phase9-metadata/phase9-metadata-manifest.json")
+          m = json.loads(p.read_text(encoding="utf-8"))
+
+          if m.get("complete") is not True or m.get("status") != "pass":
+              raise SystemExit("Phase 9 manifest is not complete/pass.")
+          if m.get("sourcePhase") != 8:
+              raise SystemExit("Phase 9 sourcePhase must be 8.")
+          if int(m.get("phase8RunId", 0)) <= 0 or int(m.get("phase7RunId", 0)) <= 0:
+              raise SystemExit("Phase 9 provenance IDs are invalid.")
+          if len(m.get("clips", [])) != 2:
+              raise SystemExit("Phase 9 must contain exactly two clips.")
+
+          requested = int(os.environ["PHASE9_RUN_ID"])
+          if requested <= 0:
+              raise SystemExit("Invalid Phase 9 run ID.")
+
+          for filename in ("clip_01.json", "clip_02.json"):
+              item = json.loads((Path("phase9-metadata") / filename).read_text(encoding="utf-8"))
+              if int(item.get("phase8RunId", 0)) != int(m["phase8RunId"]):
+                  raise SystemExit(f"{filename}: Phase 8 provenance mismatch.")
+              if item.get("sourcePhase") != 8:
+                  raise SystemExit(f"{filename}: sourcePhase mismatch.")
+
+          print("PHASE9_PROVENANCE_INPUT_PASS")
+          print(f"phase7RunId={m['phase7RunId']}")
+          print(f"phase8RunId={m['phase8RunId']}")
+          PY
+
+          PHASE7_RUN_ID=$(python3 -c 'import json; print(json.load(open("phase9-metadata/phase9-metadata-manifest.json"))["phase7RunId"])')
+          CONCLUSION=$(gh run view "$PHASE7_RUN_ID" --repo "${{ github.repository }}" --json conclusion --jq '.conclusion')
+          test "$CONCLUSION" = "success"
+
+      - name: Download exact Phase 7 rendered clips
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PHASE7_RUN_ID=$(python3 -c 'import json; print(json.load(open("phase9-metadata/phase9-metadata-manifest.json"))["phase7RunId"])')
+          mkdir -p phase7-clips
+          gh run download "$PHASE7_RUN_ID" --repo "${{ github.repository }}" --name professional-cod-clips-phase7 --dir phase7-clips
+          test -s phase7-clips/clip_01.mp4
+          test -s phase7-clips/clip_02.mp4
+
+      - name: Download exact Phase 7 render QA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PHASE7_RUN_ID=$(python3 -c 'import json; print(json.load(open("phase9-metadata/phase9-metadata-manifest.json"))["phase7RunId"])')
+          mkdir -p phase7-qa
+          gh run download "$PHASE7_RUN_ID" --repo "${{ github.repository }}" --name phase7-render-qa --dir phase7-qa
+          test -s phase7-qa/phase7-render-manifest.json
+          test -s phase7-qa/quality_report.json
+
+      - name: Verify exact Phase 7 artifact provenance
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          p9 = json.loads(Path("phase9-metadata/phase9-metadata-manifest.json").read_text(encoding="utf-8"))
+          p7 = json.loads(Path("phase7-qa/phase7-render-manifest.json").read_text(encoding="utf-8"))
+
+          if int(p7.get("phase6RunId", 0)) <= 0:
+              raise SystemExit("Phase 7 manifest lacks Phase 6 provenance.")
+          if p7.get("complete") is not True or p7.get("phase") != "7_ffmpeg_rendering":
+              raise SystemExit("Phase 7 render manifest is not complete.")
+          if len(p7.get("plans", [])) != 2 or len(p7.get("qualityReport", [])) != 2:
+              raise SystemExit("Phase 7 manifest must contain exactly two plans and two quality reports.")
+          if p7.get("originalAudioPreserved") is not True:
+              raise SystemExit("Phase 7 original audio preservation gate failed.")
+          if p7.get("campaignBrandingApplied") is not True:
+              raise SystemExit("Phase 7 campaign branding gate failed.")
+
+          for item in p7["qualityReport"]:
+              if not (10.0 <= float(item["duration"]) <= 60.0):
+                  raise SystemExit(f"{item['file']}: duration outside publishing bounds.")
+              if int(item["width"]) != 1080 or int(item["height"]) != 1920:
+                  raise SystemExit(f"{item['file']}: resolution mismatch.")
+              if item["videoCodec"] != "h264" or int(item["bitrate"]) < 500000 or item.get("hasAudio") is not True:
+                  raise SystemExit(f"{item['file']}: Phase 7 quality contract failed.")
+
+          print("PHASE7_ARTIFACT_PROVENANCE_PASS")
+          print(f"phase9->phase7={p9['phase7RunId']}")
+          PY
+
+      - name: Build deterministic Phase 10 publishing package
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/phase10-publishing-package.py
+
+      - name: Bind Phase 10 package to exact Phase 9 run
+        env:
+          PHASE9_RUN_ID: ${{ inputs.phase9_run_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          p = Path("phase10-publishing-package/publish-manifest.json")
+          data = json.loads(p.read_text(encoding="utf-8"))
+          data["phase9RunId"] = int(os.environ["PHASE9_RUN_ID"])
+          p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+          print("PHASE10_PROVENANCE_BINDING_PASS")
+          PY
+
+      - name: Final Phase 10 package validation
+        env:
+          PHASE9_RUN_ID: ${{ inputs.phase9_run_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path("phase10-publishing-package")
+          m = json.loads((root / "publish-manifest.json").read_text(encoding="utf-8"))
+
+          if m.get("complete") is not True or m.get("status") != "ready_for_platform_publishing":
+              raise SystemExit("Phase 10 package is not ready.")
+          if int(m.get("phase9RunId", 0)) != int(os.environ["PHASE9_RUN_ID"]):
+              raise SystemExit("Phase 10 is not bound to the requested Phase 9 run.")
+          if int(m.get("phase8RunId", 0)) <= 0 or int(m.get("phase7RunId", 0)) <= 0:
+              raise SystemExit("Phase 10 provenance chain is incomplete.")
+          if len(m.get("clips", [])) != 2:
+              raise SystemExit("Phase 10 must contain exactly two clips.")
+          if m.get("publishingPolicy", {}).get("phase10DoesNotPublish") is not True:
+              raise SystemExit("Phase 10 must remain a packaging/preparation phase.")
+
+          for clip in m["clips"]:
+              video = root / "videos" / clip["file"]
+              metadata = root / clip["metadataFile"]
+              if not video.is_file() or video.stat().st_size < 100000:
+                  raise SystemExit(f"{clip['file']}: video missing or too small.")
+              if not metadata.is_file():
+                  raise SystemExit(f"{clip['file']}: metadata missing.")
+              actual = hashlib.sha256(video.read_bytes()).hexdigest()
+              if actual != clip["sha256"]:
+                  raise SystemExit(f"{clip['file']}: SHA-256 checksum mismatch.")
+              for platform in ("youtubeShorts", "tiktok", "instagram"):
+                  p = root / "platform" / Path(clip["file"]).stem / f"{platform}.json"
+                  if not p.is_file():
+                      raise SystemExit(f"{clip['file']}: {platform} metadata missing.")
+
+          print("PHASE10_ARTIFACT_VALIDATION_PASS")
+          PY
+
+      - name: Upload Phase 10 publishing package
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase10-publishing-package
+          path: phase10-publishing-package
+          if-no-files-found: error
+          retention-days: 30
