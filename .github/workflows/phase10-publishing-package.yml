@@ -23,8 +23,8 @@ jobs:
 
       - name: Validate Phase 9 run
         env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ inputs.phase9_run_id }}
+          GH_TOKEN: \${{ github.token }}
+          RUN_ID: \${{ inputs.phase9_run_id }}
         run: |
           set -euo pipefail
           test -n "$RUN_ID"
@@ -32,25 +32,24 @@ jobs:
             ''|*[!0-9]*) echo "Phase 9 run ID must be numeric."; exit 1 ;;
           esac
           test "$RUN_ID" -gt 0
-          CONCLUSION=$(gh run view "$RUN_ID" --repo "${{ github.repository }}" --json conclusion --jq '.conclusion')
+          CONCLUSION=$(gh run view "$RUN_ID" --repo "\${{ github.repository }}" --json conclusion --jq '.conclusion')
           test "$CONCLUSION" = "success"
 
       - name: Download exact Phase 9 metadata artifact
         env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ inputs.phase9_run_id }}
+          GH_TOKEN: \${{ github.token }}
+          RUN_ID: \${{ inputs.phase9_run_id }}
         run: |
           set -euo pipefail
           mkdir -p phase9-metadata
-          gh run download "$RUN_ID" --repo "${{ github.repository }}" --name phase9-metadata --dir phase9-metadata
+          gh run download "$RUN_ID" --repo "\${{ github.repository }}" --name phase9-metadata --dir phase9-metadata
           test -s phase9-metadata/phase9-metadata-manifest.json
           test -s phase9-metadata/clip_01.json
           test -s phase9-metadata/clip_02.json
 
       - name: Validate Phase 9 to Phase 7 provenance
         env:
-          PHASE9_RUN_ID: ${{ inputs.phase9_run_id }}
-          GH_TOKEN: ${{ github.token }}
+          PHASE9_RUN_ID: \${{ inputs.phase9_run_id }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -58,15 +57,16 @@ jobs:
           import os
           from pathlib import Path
 
-          p = Path("phase9-metadata/phase9-metadata-manifest.json")
-          m = json.loads(p.read_text(encoding="utf-8"))
+          m = json.loads(Path("phase9-metadata/phase9-metadata-manifest.json").read_text(encoding="utf-8"))
 
           if m.get("complete") is not True or m.get("status") != "pass":
               raise SystemExit("Phase 9 manifest is not complete/pass.")
           if m.get("sourcePhase") != 8:
               raise SystemExit("Phase 9 sourcePhase must be 8.")
-          if int(m.get("phase8RunId", 0)) <= 0 or int(m.get("phase7RunId", 0)) <= 0:
-              raise SystemExit("Phase 9 provenance IDs are invalid.")
+          if not isinstance(m.get("phase8RunId"), int) or m["phase8RunId"] <= 0:
+              raise SystemExit("Phase 9 Phase 8 provenance ID is invalid.")
+          if not isinstance(m.get("phase7RunId"), int) or m["phase7RunId"] <= 0:
+              raise SystemExit("Phase 9 Phase 7 provenance ID is invalid.")
           if len(m.get("clips", [])) != 2:
               raise SystemExit("Phase 9 must contain exactly two clips.")
 
@@ -74,8 +74,10 @@ jobs:
           if requested <= 0:
               raise SystemExit("Invalid Phase 9 run ID.")
 
-          for filename in ("clip_01.json", "clip_02.json"):
+          for expected_number, filename in enumerate(("clip_01.json", "clip_02.json"), 1):
               item = json.loads((Path("phase9-metadata") / filename).read_text(encoding="utf-8"))
+              if int(item.get("clipNumber", 0)) != expected_number:
+                  raise SystemExit(f"{filename}: clipNumber contract mismatch.")
               if int(item.get("phase8RunId", 0)) != int(m["phase8RunId"]):
                   raise SystemExit(f"{filename}: Phase 8 provenance mismatch.")
               if item.get("sourcePhase") != 8:
@@ -87,28 +89,28 @@ jobs:
           PY
 
           PHASE7_RUN_ID=$(python3 -c 'import json; print(json.load(open("phase9-metadata/phase9-metadata-manifest.json"))["phase7RunId"])')
-          CONCLUSION=$(gh run view "$PHASE7_RUN_ID" --repo "${{ github.repository }}" --json conclusion --jq '.conclusion')
+          CONCLUSION=$(gh run view "$PHASE7_RUN_ID" --repo "\${{ github.repository }}" --json conclusion --jq '.conclusion')
           test "$CONCLUSION" = "success"
 
       - name: Download exact Phase 7 rendered clips
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: \${{ github.token }}
         run: |
           set -euo pipefail
           PHASE7_RUN_ID=$(python3 -c 'import json; print(json.load(open("phase9-metadata/phase9-metadata-manifest.json"))["phase7RunId"])')
           mkdir -p phase7-clips
-          gh run download "$PHASE7_RUN_ID" --repo "${{ github.repository }}" --name professional-cod-clips-phase7 --dir phase7-clips
+          gh run download "$PHASE7_RUN_ID" --repo "\${{ github.repository }}" --name professional-cod-clips-phase7 --dir phase7-clips
           test -s phase7-clips/clip_01.mp4
           test -s phase7-clips/clip_02.mp4
 
       - name: Download exact Phase 7 render QA
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: \${{ github.token }}
         run: |
           set -euo pipefail
           PHASE7_RUN_ID=$(python3 -c 'import json; print(json.load(open("phase9-metadata/phase9-metadata-manifest.json"))["phase7RunId"])')
           mkdir -p phase7-qa
-          gh run download "$PHASE7_RUN_ID" --repo "${{ github.repository }}" --name phase7-render-qa --dir phase7-qa
+          gh run download "$PHASE7_RUN_ID" --repo "\${{ github.repository }}" --name phase7-render-qa --dir phase7-qa
           test -s phase7-qa/phase7-render-manifest.json
           test -s phase7-qa/quality_report.json
 
@@ -121,28 +123,51 @@ jobs:
 
           p9 = json.loads(Path("phase9-metadata/phase9-metadata-manifest.json").read_text(encoding="utf-8"))
           p7 = json.loads(Path("phase7-qa/phase7-render-manifest.json").read_text(encoding="utf-8"))
+          quality = json.loads(Path("phase7-qa/quality_report.json").read_text(encoding="utf-8"))
 
-          if int(p7.get("phase6RunId", 0)) <= 0:
-              raise SystemExit("Phase 7 manifest lacks Phase 6 provenance.")
           if p7.get("complete") is not True or p7.get("phase") != "7_ffmpeg_rendering":
               raise SystemExit("Phase 7 render manifest is not complete.")
+          if int(p7.get("phase6RunId", 0)) <= 0:
+              raise SystemExit("Phase 7 manifest lacks Phase 6 provenance.")
           if len(p7.get("plans", [])) != 2 or len(p7.get("qualityReport", [])) != 2:
               raise SystemExit("Phase 7 manifest must contain exactly two plans and two quality reports.")
+          if len(quality) != 2:
+              raise SystemExit("Phase 7 quality artifact must contain exactly two reports.")
           if p7.get("originalAudioPreserved") is not True:
               raise SystemExit("Phase 7 original audio preservation gate failed.")
           if p7.get("campaignBrandingApplied") is not True:
               raise SystemExit("Phase 7 campaign branding gate failed.")
 
-          for item in p7["qualityReport"]:
-              if not (10.0 <= float(item["duration"]) <= 60.0):
-                  raise SystemExit(f"{item['file']}: duration outside publishing bounds.")
-              if int(item["width"]) != 1080 or int(item["height"]) != 1920:
-                  raise SystemExit(f"{item['file']}: resolution mismatch.")
-              if item["videoCodec"] != "h264" or int(item["bitrate"]) < 500000 or item.get("hasAudio") is not True:
-                  raise SystemExit(f"{item['file']}: Phase 7 quality contract failed.")
+          if int(p9["phase7RunId"]) <= 0:
+              raise SystemExit("Phase 9 Phase 7 provenance is invalid.")
+
+          # Phase 7 producer contract: plan order -> render job 01/02 -> clip_01/clip_02.
+          plans = p7["plans"]
+          qa_by_file = {x["file"]: x for x in quality}
+          if len(qa_by_file) != 2:
+              raise SystemExit("Phase 7 quality report contains duplicate output filenames.")
+
+          for clip_number, plan in enumerate(plans, 1):
+              if not plan.get("planId") or not plan.get("assetId") or not plan.get("fileName"):
+                  raise SystemExit(f"Phase 7 plan {clip_number} lacks required provenance.")
+              expected_file = f"clip_{clip_number:02d}.mp4"
+              q = qa_by_file.get(expected_file)
+              if q is None:
+                  raise SystemExit(f"{expected_file}: missing Phase 7 quality report.")
+              plan_duration = float(plan["durationSeconds"])
+              q_duration = float(q["duration"])
+              if abs(plan_duration - q_duration) > 0.25:
+                  raise SystemExit(f"{expected_file}: Phase 7 plan/QA duration mismatch.")
+              if not 10.0 <= plan_duration <= 60.0:
+                  raise SystemExit(f"{expected_file}: Phase 7 plan duration outside bounds.")
+              if int(q["width"]) != 1080 or int(q["height"]) != 1920:
+                  raise SystemExit(f"{expected_file}: Phase 7 resolution mismatch.")
+              if q["videoCodec"] != "h264" or int(q["bitrate"]) < 500000 or q.get("hasAudio") is not True:
+                  raise SystemExit(f"{expected_file}: Phase 7 quality contract failed.")
 
           print("PHASE7_ARTIFACT_PROVENANCE_PASS")
           print(f"phase9->phase7={p9['phase7RunId']}")
+          print(f"phase7->phase6={p7['phase6RunId']}")
           PY
 
       - name: Build deterministic Phase 10 publishing package
@@ -152,7 +177,7 @@ jobs:
 
       - name: Bind Phase 10 package to exact Phase 9 run
         env:
-          PHASE9_RUN_ID: ${{ inputs.phase9_run_id }}
+          PHASE9_RUN_ID: \${{ inputs.phase9_run_id }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -169,7 +194,7 @@ jobs:
 
       - name: Final Phase 10 package validation
         env:
-          PHASE9_RUN_ID: ${{ inputs.phase9_run_id }}
+          PHASE9_RUN_ID: \${{ inputs.phase9_run_id }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -185,12 +210,35 @@ jobs:
               raise SystemExit("Phase 10 package is not ready.")
           if int(m.get("phase9RunId", 0)) != int(os.environ["PHASE9_RUN_ID"]):
               raise SystemExit("Phase 10 is not bound to the requested Phase 9 run.")
-          if int(m.get("phase8RunId", 0)) <= 0 or int(m.get("phase7RunId", 0)) <= 0:
+          if int(m.get("phase8RunId", 0)) <= 0 or int(m.get("phase7RunId", 0)) <= 0 or int(m.get("phase6RunId", 0)) <= 0:
               raise SystemExit("Phase 10 provenance chain is incomplete.")
           if len(m.get("clips", [])) != 2:
               raise SystemExit("Phase 10 must contain exactly two clips.")
           if m.get("publishingPolicy", {}).get("phase10DoesNotPublish") is not True:
               raise SystemExit("Phase 10 must remain a packaging/preparation phase.")
+          if m.get("packageChecks", {}).get("phase7PlanBindingVerified") is not True:
+              raise SystemExit("Phase 7 plan binding was not verified.")
+
+          expected_files = {
+              "publish-manifest.json",
+              "videos/clip_01.mp4",
+              "videos/clip_02.mp4",
+              "metadata/clip_01.json",
+              "metadata/clip_02.json",
+              "platform/clip_01/youtubeShorts.json",
+              "platform/clip_01/tiktok.json",
+              "platform/clip_01/instagram.json",
+              "platform/clip_02/youtubeShorts.json",
+              "platform/clip_02/tiktok.json",
+              "platform/clip_02/instagram.json",
+          }
+          actual_files = {
+              p.relative_to(root).as_posix()
+              for p in root.rglob("*")
+              if p.is_file()
+          }
+          if actual_files != expected_files:
+              raise SystemExit(f"Unexpected Phase 10 package file set: {sorted(actual_files)}")
 
           for clip in m["clips"]:
               video = root / "videos" / clip["file"]
@@ -202,10 +250,23 @@ jobs:
               actual = hashlib.sha256(video.read_bytes()).hexdigest()
               if actual != clip["sha256"]:
                   raise SystemExit(f"{clip['file']}: SHA-256 checksum mismatch.")
+
+              metadata_obj = json.loads(metadata.read_text(encoding="utf-8"))
+              if metadata_obj.get("file") != clip["file"]:
+                  raise SystemExit(f"{clip['file']}: metadata file binding mismatch.")
+              if int(metadata_obj.get("clipNumber", 0)) != int(clip["clipNumber"]):
+                  raise SystemExit(f"{clip['file']}: metadata clip number mismatch.")
+
               for platform in ("youtubeShorts", "tiktok", "instagram"):
                   p = root / "platform" / Path(clip["file"]).stem / f"{platform}.json"
-                  if not p.is_file():
-                      raise SystemExit(f"{clip['file']}: {platform} metadata missing.")
+                  obj = json.loads(p.read_text(encoding="utf-8"))
+                  text = obj.get("description", obj.get("caption", ""))
+                  if not text.startswith("#Ad\n"):
+                      raise SystemExit(f"{clip['file']}: #Ad placement failed for {platform}.")
+                  if obj.get("requiredAccountTag") != "@Callofduty" or "@Callofduty" not in text:
+                      raise SystemExit(f"{clip['file']}: account tag failed for {platform}.")
+                  if len(obj.get("hashtags", [])) > 3:
+                      raise SystemExit(f"{clip['file']}: hashtag limit failed for {platform}.")
 
           print("PHASE10_ARTIFACT_VALIDATION_PASS")
           PY
