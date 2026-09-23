@@ -58,7 +58,7 @@ if not expected_text:
 
 # The renderer's campaign_text.txt is the authoritative rendered on-screen line.
 # Verify that its text corresponds to one of the persisted campaign-required lines.
-normalized_expected = re.sub(r"\\s+", " ", expected_text).strip().lower()
+normalized_expected = re.sub(r"\s+", " ", expected_text).strip().lower()
 if not any(normalized_expected == re.sub(r"\\s+", " ", x).strip().lower() for x in required_text):
     raise RuntimeError("Rendered campaign_text.txt does not match a persisted required on-screen text line.")
 
