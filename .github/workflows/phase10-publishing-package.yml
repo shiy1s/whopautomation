@@ -49,6 +49,7 @@ jobs:
 
       - name: Validate Phase 9 to Phase 7 provenance
         env:
+          GH_TOKEN: ${{ github.token }}
           PHASE9_RUN_ID: ${{ inputs.phase9_run_id }}
         run: |
           set -euo pipefail
