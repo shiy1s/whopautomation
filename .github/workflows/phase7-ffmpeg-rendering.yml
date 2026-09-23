@@ -1,0 +1,219 @@
+name: Phase 7 FFmpeg Rendering
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase6_run_id:
+        description: "Successful Phase 6 GitHub Actions run ID"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  phase7:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Phase 6 run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.phase6_run_id }}
+        run: |
+          set -euo pipefail
+          test -n "$RUN_ID"
+          CONCLUSION=$(gh run view "$RUN_ID" --repo "${{ github.repository }}" --json conclusion --jq '.conclusion')
+          test "$CONCLUSION" = "success"
+
+      - name: Download exact Phase 6 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.phase6_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p phase6-source
+          gh run download "$RUN_ID" --repo "${{ github.repository }}" --name mediasilo-clip-plan --dir phase6-source
+          test -f phase6-source/phase6-clip-plan-manifest.json
+          test -f phase6-source/render-plan.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("phase6-source/phase6-clip-plan-manifest.json").read_text())
+          if m.get("complete") is not True or m.get("clipPlanCount") != 2:
+              raise SystemExit("Phase 6 artifact contract failed")
+          for p in m["clipPlans"]:
+              d=float(p["durationSeconds"])
+              if not 10 <= d <= 60:
+                  raise SystemExit(f"Renderer-incompatible Phase 6 plan: {d}s")
+          print("PHASE6_SOURCE_VALIDATION_PASS")
+          PY
+
+      - name: Install Playwright
+        run: |
+          set -euo pipefail
+          npm init -y >/dev/null 2>&1
+          npm install --no-audit --no-fund playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Install FFmpeg
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffmpeg -version | head -1
+          ffprobe -version | head -1
+
+      - name: Fetch exact Phase 6 source media from MediaSilo
+        run: |
+          set -euo pipefail
+          node .github/scripts/phase7-source-worker.js
+          test -s phase7-source-manifest.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("phase7-source-manifest.json").read_text())
+          if m.get("complete") is not True or len(m.get("assets",[])) != 2:
+              raise SystemExit("Phase 7 source manifest contract failed")
+          for a in m["assets"]:
+              p=Path(a["path"])
+              if not p.is_file() or p.stat().st_size < 100000:
+                  raise SystemExit(f"Missing/invalid source file: {p}")
+          print("PHASE7_SOURCE_VALIDATION_PASS")
+          PY
+
+      - name: Verify proven renderer assets
+        run: |
+          set -euo pipefail
+          test -s Call_of_Duty_Wordmark_Stacked_CMYK_White.png
+          test -s campaign_text.txt
+          test -s .github/scripts/phase7-render-clips.py
+          test -f /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+
+      - name: Prepare isolated render jobs
+        run: |
+          set -euo pipefail
+          python .github/scripts/phase7-prepare-render-jobs.py
+          test -s render-jobs/01/source.mp4
+          test -s render-jobs/02/source.mp4
+
+      - name: Render clip 01 with proven FFmpeg renderer
+        working-directory: render-jobs/01
+        run: |
+          set -euo pipefail
+          python "${{ github.workspace }}/.github/scripts/phase7-render-clips.py"
+          test -s output/clip_01.mp4
+          cp output/clip_01.mp4 "${{ github.workspace }}/final-clip-01.mp4"
+
+      - name: Render clip 02 with proven FFmpeg renderer
+        working-directory: render-jobs/02
+        run: |
+          set -euo pipefail
+          python "${{ github.workspace }}/.github/scripts/phase7-render-clips.py"
+          test -s output/clip_01.mp4
+          cp output/clip_01.mp4 "${{ github.workspace }}/final-clip-02.mp4"
+
+      - name: Production video quality gate
+        run: |
+          set -euo pipefail
+          mkdir -p final-output
+          mv final-clip-01.mp4 final-output/clip_01.mp4
+          mv final-clip-02.mp4 final-output/clip_02.mp4
+
+          python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+
+          files=sorted(Path("final-output").glob("clip_*.mp4"))
+          if len(files) != 2:
+              raise SystemExit(f"Expected 2 final clips, found {len(files)}")
+
+          report=[]
+          for f in files:
+              meta=json.loads(subprocess.check_output([
+                  "ffprobe","-v","error",
+                  "-show_entries","format=duration,bit_rate",
+                  "-show_entries","stream=codec_name,codec_type,width,height",
+                  "-of","json",str(f)
+              ]))
+              streams=meta["streams"]
+              video=next(s for s in streams if s.get("codec_type")=="video")
+              audio=any(s.get("codec_type")=="audio" for s in streams)
+              duration=float(meta["format"]["duration"])
+              bitrate=int(float(meta["format"].get("bit_rate") or 0))
+              item={
+                  "file":f.name,
+                  "duration":round(duration,3),
+                  "width":int(video["width"]),
+                  "height":int(video["height"]),
+                  "videoCodec":video.get("codec_name"),
+                  "bitrate":bitrate,
+                  "hasAudio":audio,
+              }
+              report.append(item)
+              if not 10 <= duration <= 60:
+                  raise SystemExit(f"{f.name}: duration outside 10-60s")
+              if item["width"] != 1080 or item["height"] != 1920:
+                  raise SystemExit(f"{f.name}: not 1080x1920")
+              if item["bitrate"] < 500000:
+                  raise SystemExit(f"{f.name}: bitrate below 500kbps")
+              if not audio:
+                  raise SystemExit(f"{f.name}: original audio stream missing")
+
+          Path("quality_report.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
+          print(json.dumps(report,indent=2))
+          print("PHASE7_VIDEO_QA_PASS")
+          PY
+
+      - name: Persist Phase 7 provenance
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          phase6=json.loads(Path("phase6-source/phase6-clip-plan-manifest.json").read_text())
+          sources=json.loads(Path("phase7-source-manifest.json").read_text())
+          qa=json.loads(Path("quality_report.json").read_text())
+
+          out={
+              "schemaVersion":"1.0",
+              "phase":"7_ffmpeg_rendering",
+              "complete":True,
+              "phase6RunId":int("${{ inputs.phase6_run_id }}"),
+              "renderer":"proven FFmpeg renderer preserved verbatim from .github/workflows/main.yml",
+              "rendererScript":".github/scripts/phase7-render-clips.py",
+              "sourceManifest":"phase7-source-manifest.json",
+              "clipPlanManifest":"phase6-source/phase6-clip-plan-manifest.json",
+              "sourceAssets":sources["assets"],
+              "plans":phase6["clipPlans"],
+              "qualityReport":qa,
+              "originalAudioPreserved":True,
+              "campaignBrandingApplied":True,
+          }
+          Path("phase7-render-manifest.json").write_text(json.dumps(out,indent=2),encoding="utf-8")
+          PY
+
+      - name: Upload rendered clips
+        uses: actions/upload-artifact@v4
+        with:
+          name: professional-cod-clips-phase7
+          path: final-output/*.mp4
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Phase 7 QA and provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase7-render-qa
+          path: |
+            phase7-render-manifest.json
+            phase7-source-manifest.json
+            quality_report.json
+          if-no-files-found: error
+          retention-days: 30
