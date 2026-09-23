@@ -5,7 +5,7 @@ from pathlib import Path
 MIN_DURATION = 10.0
 MAX_DURATION = 60.0
 
-plan = json.loads(Path("phase6-source/phase6-clip-plan/render-plan.json").read_text(encoding="utf-8"))
+plan = json.loads(Path("phase6-source/render-plan.json").read_text(encoding="utf-8"))
 plans = plan.get("clipPlans", [])
 if len(plans) != 2:
     raise RuntimeError("Expected exactly two Phase 6 clip plans.")
