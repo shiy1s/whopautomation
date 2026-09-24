@@ -177,9 +177,10 @@ def main():
   if "instagram" in PLATFORMS:
    instagram_preflight()
   print(json.dumps({"preflight":"pass","platforms":PLATFORMS,"clipCount":2,"phase9RunId":m["phase9RunId"]})); return
- if os.getenv("CONFIRM_PUBLISH")=="TEST":
+ confirm=os.getenv("CONFIRM_PUBLISH","").strip()
+ if confirm.lower()=="test":
   print(json.dumps({"dryRun":"pass","platforms":PLATFORMS,"clipCount":2,"phase9RunId":m["phase9RunId"],"publishingSkipped":True})); return
- if os.getenv("CONFIRM_PUBLISH")!="PUBLISH": die("Publishing locked: set confirm_publish=PUBLISH")
+ if confirm!="PUBLISH": die("Publishing locked: set confirm_publish=PUBLISH")
  l,ls=ledger()
  for p in PLATFORMS:
   for c in m["clips"]:
