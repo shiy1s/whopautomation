@@ -192,7 +192,7 @@ def main():
    print(f"PUBLISH {p} {c['file']}")
    r=youtube(c) if p=="youtube" else tiktok(c) if p=="tiktok" else instagram(c)
    print(json.dumps({"publicationResult":r,"clipFile":c["file"],"platform":p}))
-   l.setdefault("publications",[]).append({"clipFile":c["file"],"platform":p,"videoSha256":c["sha256"],"publishedAtUtc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"status":"published","remote":r})
+   l.setdefault("publications",[]).append({"clipFile":c["file"],"platform":p,"videoSha256":c["sha256"],"publishedAtUtc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"phase11RunId":int(os.environ["GITHUB_RUN_ID"]),"status":"published","remote":r})
    ls=save_ledger(l,ls); print(json.dumps(r))
  print("PHASE11_COMPLETE")
 if __name__=="__main__":
