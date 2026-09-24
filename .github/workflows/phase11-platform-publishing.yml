@@ -114,5 +114,5 @@ jobs:
         run: |
           set +e
           if [ -n "${PHASE11_RELEASE_TAG:-}" ]; then
-            gh release delete "$PHASE11_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+            gh release delete "$PHASE11_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
           fi
