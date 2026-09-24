@@ -29,6 +29,37 @@ def gh_api(url, method="GET", body=None):
         detail = e.read().decode(errors="replace")
         raise RuntimeError(f"GitHub HTTP {e.code}: {detail}")
 
+def graph_json(url, token):
+    req = urllib.request.Request(url)
+    req.add_header("Authorization", f"Bearer {token}")
+    req.add_header("Accept", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode(errors="replace")
+        raise RuntimeError(f"Instagram HTTP {e.code}: {detail}")
+
+def instagram_snapshot(media_id, token):
+    version = os.environ.get("INSTAGRAM_GRAPH_VERSION") or "v25.0"
+    fields = "id,caption,media_type,media_product_type,timestamp,permalink"
+    q = urllib.parse.urlencode({"fields": fields})
+    d = graph_json(f"https://graph.instagram.com/{version}/{media_id}?{q}", token)
+    if str(d.get("id")) != str(media_id):
+        die(f"Instagram media ID mismatch for {media_id}")
+    media_type = d.get("media_type")
+    if media_type not in ("VIDEO", "REELS"):
+        die(f"Instagram media {media_id} is not a video/reel: {media_type}")
+    return {
+        "mediaId": str(d["id"]),
+        "mediaType": media_type,
+        "mediaProductType": d.get("media_product_type"),
+        "captionPresent": bool(d.get("caption")),
+        "publishedAt": d.get("timestamp"),
+        "permalink": d.get("permalink"),
+        "trackedAtUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
 def google_json(url, token):
     req = urllib.request.Request(url)
     req.add_header("Authorization", f"Bearer {token}")
@@ -136,6 +167,20 @@ def main():
         snap["videoSha256"] = p["videoSha256"]
         snapshots.append(snap)
 
+    instagram_pubs = [x for x in pubs if x.get("platform") == "instagram" and x.get("status") == "published"]
+    instagram_token = os.environ.get("INSTAGRAM_ACCESS_TOKEN")
+    if instagram_pubs and not instagram_token:
+        die("Instagram publications exist but INSTAGRAM_ACCESS_TOKEN is missing")
+    instagram_snapshots = []
+    for p in instagram_pubs:
+        media_id = p.get("remote", {}).get("mediaId")
+        if not media_id:
+            die(f"Published Instagram record has no mediaId: {p.get('clipFile')}")
+        snap = instagram_snapshot(media_id, instagram_token)
+        snap["clipFile"] = p["clipFile"]
+        snap["videoSha256"] = p["videoSha256"]
+        instagram_snapshots.append(snap)
+
     previous = None
     try:
         previous, tracking_sha = read_json_from_repo(str(TRACKING_PATH))
@@ -153,9 +198,11 @@ def main():
         "phase11RunId": int(PHASE11_RUN_ID),
         "phase11HeadSha": run["headSha"],
         "trackedAtUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "platforms": ["youtube"],
+        "platforms": ["youtube", "instagram"] if instagram_snapshots else ["youtube"],
         "videoCount": len(snapshots),
+        "instagramVideoCount": len(instagram_snapshots),
         "snapshots": snapshots,
+        "instagramSnapshots": instagram_snapshots,
     }
     history.append(record)
     payload = {"schemaVersion": 1, "snapshots": history}
