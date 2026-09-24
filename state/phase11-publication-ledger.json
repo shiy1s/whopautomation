@@ -24,6 +24,17 @@
       },
       "status": "published",
       "videoSha256": "d15acee6c61f3c77141413e23bd29534f6ed596e9510c0d022c44219748cfaaf"
+    },
+    {
+      "clipFile": "clip_01.mp4",
+      "platform": "instagram",
+      "publishedAtUtc": "2026-09-24T10:49:36Z",
+      "remote": {
+        "containerId": "18111466516915194",
+        "mediaId": "17908647225307322"
+      },
+      "status": "published",
+      "videoSha256": "d6418ecd305d86fdeff14f443940bcb33db7bc2999cd316d7ed2b57e185028dd"
     }
   ],
   "schemaVersion": 1
