@@ -122,6 +122,8 @@ def main():
         die(f"No published {PLATFORM} record exists for {CLIP_FILE}")
 
     publication = max(matches, key=lambda item: item.get("publishedAtUtc", ""))
+    if publication.get("phase11RunId") != int(RUN_ID):
+        die("Supplied Phase 11 run ID does not match the exact publication record")
     if not publication.get("videoSha256"):
         die("Publication record is missing videoSha256")
 
