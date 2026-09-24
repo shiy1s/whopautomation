@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 import re
 from pathlib import Path
 
@@ -53,6 +54,7 @@ if not any(normalized_campaign_text == re.sub(r"\s+", " ", x).strip().lower() fo
 # current web-grounded signal using Gemini Search. If the live signal cannot be
 # verified, the safe campaign fallback is used.
 import urllib.error
+import urllib.request
 
 def select_hashtags():
     fallback = ["#CallOfDuty", "#RICOCHET", "#AntiCheat"]
