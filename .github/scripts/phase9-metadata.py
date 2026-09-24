@@ -48,8 +48,78 @@ required_lines = rules["onScreenText"]["requiredLines"]
 if not any(normalized_campaign_text == re.sub(r"\s+", " ", x).strip().lower() for x in required_lines):
     raise RuntimeError("campaign_text.txt is not one of the persisted required on-screen lines.")
 
-# These are factual campaign-approved terms only; no new claims are generated here.
-HASHTAGS = ["#CallOfDuty", "#RICOCHET", "#AntiCheat"]
+# Hashtags are limited by the persisted campaign rule to three additional tags.
+# Two campaign anchors are always retained. The third slot is selected from a
+# current web-grounded signal using Gemini Search. If the live signal cannot be
+# verified, the safe campaign fallback is used.
+import urllib.error
+
+def select_hashtags():
+    fallback = ["#CallOfDuty", "#RICOCHET", "#AntiCheat"]
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return fallback, "fallback_no_gemini_key"
+    prompt = """
+Select up to 3 relevant hashtags for Call of Duty RICOCHET Anti-Cheat enforcement footage.
+Requirements:
+1. Always include #CallOfDuty and #RICOCHET.
+2. Use the third slot only for a current, content-relevant Call of Duty / RICOCHET / anti-cheat hashtag supported by recent web results.
+3. Do not use generic reach-bait tags such as #fyp, #viral, #trending, #explore.
+4. Do not invent a hashtag. Prefer a hashtag that appears in current official Call of Duty/Activision material or clearly current gaming discussion.
+Return JSON only: {"hashtags":["#...","#...","#..."]}.
+""".strip()
+    body = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "tools": [{"google_search": {}}],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseSchema": {
+                "type": "OBJECT",
+                "properties": {
+                    "hashtags": {
+                        "type": "ARRAY",
+                        "items": {"type": "STRING"},
+                        "minItems": 2,
+                        "maxItems": 3
+                    }
+                },
+                "required": ["hashtags"]
+            },
+            "temperature": 0.1,
+            "maxOutputTokens": 120
+        }
+    }
+    req = urllib.request.Request(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+        method="POST",
+    )
+    try:
+        response = urllib.request.urlopen(req, timeout=90).read()
+        data = json.loads(response)
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        selected = json.loads(text).get("hashtags", [])
+        clean = []
+        for tag in selected:
+            tag = str(tag).strip()
+            if re.fullmatch(r"#[A-Za-z0-9_]{2,50}", tag) and tag.lower() not in {x.lower() for x in clean}:
+                clean.append(tag)
+        anchors = ["#CallOfDuty", "#RICOCHET"]
+        result = []
+        for anchor in anchors:
+            if anchor.lower() in {x.lower() for x in clean}:
+                result.append(anchor)
+        for tag in clean:
+            if tag.lower() not in {x.lower() for x in result}:
+                result.append(tag)
+        if len(result) < 2:
+            return fallback, "fallback_invalid_ai_output"
+        return result[:3], "gemini_google_search"
+    except Exception:
+        return fallback, "fallback_live_signal_unavailable"
+
+HASHTAGS, HASHTAG_SOURCE = select_hashtags()
 REFERENCE_CONTEXT = (
     "Call of Duty shared a RICOCHET Anti-Cheat update detailing its continued fight "
     "against cheating beyond the match, including action against developers and sellers "
@@ -166,7 +236,7 @@ manifest = {
         "noUnverifiedClaims": True,
         "ftcDisclosure": disclosure,
         "requiredAccountTag": account_tag,
-        "additionalHashtagLimit": 3,
+        "additionalHashtagLimit": 3,\n        "dynamicHashtags": True,
     },
     "campaignCompliance": {
         "officialSourceRequired": rules["content"]["officialFootageOnly"],
