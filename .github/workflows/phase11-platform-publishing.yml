@@ -89,7 +89,7 @@ jobs:
           python .github/scripts/phase11-platform-publishing.py
 
       - name: Create temporary public media release for Instagram
-        if: ${{ inputs.platforms == 'all' || inputs.platforms == 'instagram' }}
+        if: ${{ inputs.confirm_publish == 'PUBLISH' && (inputs.platforms == 'all' || inputs.platforms == 'instagram') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -109,7 +109,7 @@ jobs:
           exit "$rc"
 
       - name: Cleanup temporary media release
-        if: ${{ always() && (inputs.platforms == 'all' || inputs.platforms == 'instagram') }}
+        if: ${{ always() && inputs.confirm_publish == 'PUBLISH' && (inputs.platforms == 'all' || inputs.platforms == 'instagram') }}
         shell: bash
         run: |
           set +e
