@@ -131,20 +131,20 @@ def tiktok(c):
  urllib.request.urlopen(r,timeout=180).read()
  return {"publishId":pid,"privacyLevel":"PUBLIC_TO_EVERYONE"}
 def instagram(c):
- tok=os.environ["INSTAGRAM_ACCESS_TOKEN"]; ig=os.environ["INSTAGRAM_USER_ID"]; v=(os.environ.get("INSTAGRAM_GRAPH_VERSION") or "v24.0"); tag=os.environ["PHASE11_RELEASE_TAG"]
+ tok=os.environ["INSTAGRAM_ACCESS_TOKEN"]; ig=os.environ["INSTAGRAM_USER_ID"]; v=(os.environ.get("INSTAGRAM_GRAPH_VERSION") or "v25.0"); tag=os.environ["PHASE11_RELEASE_TAG"]
  md=jfile(ROOT/c["metadataFile"])["instagram"]; video=f"https://github.com/{REPO}/releases/download/{tag}/{c['file']}"
  q=urllib.parse.urlencode({"media_type":"REELS","video_url":video,"caption":md["caption"],"share_to_feed":"true","access_token":tok})
- d=http_json(f"https://graph.facebook.com/{v}/{ig}/media?{q}","POST"); cid=d.get("id")
- if not cid: die("Instagram container creation failed")
+ d=http_json(f"https://graph.instagram.com/{v}/{ig}/media?{q}","POST"); cid=d.get("id")
+ if not cid: die("Instagram Login Reel container creation failed")
  end=time.time()+600
  while time.time()<end:
-  q=urllib.parse.urlencode({"fields":"status_code,status","access_token":tok}); s=http_json(f"https://graph.facebook.com/{v}/{cid}?{q}")
+  q=urllib.parse.urlencode({"fields":"status_code,status","access_token":tok}); s=http_json(f"https://graph.instagram.com/{v}/{cid}?{q}")
   if s.get("status_code")=="FINISHED": break
-  if s.get("status_code") in ("ERROR","EXPIRED"): die(f"Instagram container failed: {s}")
+  if s.get("status_code") in ("ERROR","EXPIRED"): die(f"Instagram Login container failed: {s}")
   time.sleep(15)
- else: die("Instagram container timed out")
- q=urllib.parse.urlencode({"creation_id":cid,"access_token":tok}); d=http_json(f"https://graph.facebook.com/{v}/{ig}/media_publish?{q}","POST")
- if not d.get("id"): die("Instagram publish returned no media id")
+ else: die("Instagram Login container timed out")
+ q=urllib.parse.urlencode({"creation_id":cid,"access_token":tok}); d=http_json(f"https://graph.instagram.com/{v}/{ig}/media_publish?{q}","POST")
+ if not d.get("id"): die("Instagram Login publish returned no media id")
  return {"mediaId":d["id"],"containerId":cid}
 def main():
  m=manifest()
