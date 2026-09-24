@@ -72,7 +72,9 @@ jobs:
           print("PHASE8_PROVENANCE_CONTRACT_PASS")
           PY
 
-      - name: Run deterministic Phase 9 metadata generation
+      - name: Run current-signal Phase 9 metadata generation
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           set -euo pipefail
           python3 .github/scripts/phase9-metadata.py
@@ -115,8 +117,8 @@ jobs:
               raise SystemExit("Phase 9 manifest is not complete/pass.")
           if len(manifest.get("clips", [])) != 2:
               raise SystemExit("Phase 9 must contain exactly two clips.")
-          if manifest.get("metadataPolicy", {}).get("aiGeneration") is not False:
-              raise SystemExit("Phase 9 must remain deterministic.")
+          if manifest.get("metadataPolicy", {}).get("aiGeneration") is not True:
+              raise SystemExit("Phase 9 dynamic hashtag generation is not enabled.")
 
           for clip in manifest["clips"]:
               if not clip.get("youtubeShorts", {}).get("title"):
