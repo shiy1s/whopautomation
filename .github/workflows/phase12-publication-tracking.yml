@@ -13,7 +13,8 @@ on:
         type: choice
         options:
           - youtube
-        default: youtube
+          - youtube_instagram
+        default: youtube_instagram
 
 permissions:
   contents: write
@@ -33,6 +34,8 @@ jobs:
       YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
       YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
       YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+      INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+      INSTAGRAM_GRAPH_VERSION: ${{ vars.INSTAGRAM_GRAPH_VERSION }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -41,8 +44,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ inputs.platforms }}" != "youtube" ]]; then
-            echo "Only youtube tracking is implemented and enabled in Phase 12."
+          if [[ "${{ inputs.platforms }}" != "youtube" && "${{ inputs.platforms }}" != "youtube_instagram" ]]; then
+            echo "Unsupported Phase 12 tracking platform selection."
             exit 1
           fi
           [[ "${PHASE11_RUN_ID}" =~ ^[0-9]+$ ]] || {
