@@ -30,7 +30,7 @@ The authorized TikTok user must have the `video.publish` scope and the Direct Po
 - INSTAGRAM_USER_ID
 
 Optional repository variable:
-- INSTAGRAM_GRAPH_VERSION (defaults to v24.0)
+- INSTAGRAM_GRAPH_VERSION (defaults to v25.0)
 
 The account must be an eligible Instagram professional account and the token must have content-publishing permission.
 
@@ -40,6 +40,7 @@ The account must be an eligible Instagram professional account and the token mus
 - Phase 10 run must be completed successfully.
 - Phase 10 artifact is downloaded by exact artifact name.
 - Manifest, video checksums and metadata are validated before publishing.
+- `TEST` is a non-publishing dry run; it performs selected-platform preflight and never creates the temporary Instagram media release.
 - Publishing requires the literal confirmation value `PUBLISH`.
 - Duplicate protection is persisted in `state/phase11-publication-ledger.json`.
 - Phase 11 serializes publishing with GitHub Actions concurrency.
