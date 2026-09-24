@@ -12,12 +12,13 @@ A candidate is accepted only when:
 
 1. The supplied Phase 11 run is the exact Phase 11 Platform Publishing workflow and completed successfully.
 2. The selected clip exists as a published record in state/phase11-publication-ledger.json.
-3. The Content Rewards campaign is explicitly verified as active.
-4. The platform is YouTube or Instagram.
-5. The submitted URL matches the exact published remote object.
-6. The publication is no more than 30 minutes old.
-7. The exact campaign + platform + clip + URL combination is not already recorded.
-8. SUBMIT_READY is explicitly supplied.
+3. The selected publication record carries the same Phase 11 run ID supplied to Phase 14; future Phase 11 publications now record this provenance automatically.
+4. The Content Rewards campaign is explicitly verified as active.
+5. The platform is YouTube or Instagram.
+6. The submitted URL matches the exact published remote object.
+7. The publication is no more than 30 minutes old.
+8. The exact campaign + platform + clip + URL combination is not already recorded.
+9. SUBMIT_READY is explicitly supplied.
 
 ## Manual final submission
 
