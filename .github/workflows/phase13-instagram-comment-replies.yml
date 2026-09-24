@@ -1,0 +1,54 @@
+name: Phase 13 Instagram Comment Replies
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry_run only inspects; publish posts approved replies"
+        required: true
+        default: "dry_run"
+        type: choice
+        options:
+          - dry_run
+          - publish
+      max_comments:
+        description: "Maximum new comments processed in this run"
+        required: true
+        default: "10"
+        type: string
+
+concurrency:
+  group: phase13-instagram-comment-replies
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  comment-replies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: \${{ github.token }}
+      INSTAGRAM_ACCESS_TOKEN: \${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+      INSTAGRAM_USER_ID: \${{ secrets.INSTAGRAM_USER_ID }}
+      INSTAGRAM_GRAPH_VERSION: \${{ vars.INSTAGRAM_GRAPH_VERSION }}
+      GEMINI_API_KEY: \${{ secrets.GEMINI_API_KEY }}
+      COMMENT_REPLY_MAX_PER_RUN: \${{ inputs.max_comments || '10' }}
+      COMMENT_REPLY_MODE: \${{ inputs.mode || 'publish' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Validate and run Phase 13
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$INSTAGRAM_ACCESS_TOKEN"
+          test -n "$INSTAGRAM_USER_ID"
+          test -n "$GEMINI_API_KEY"
+          python3 -m py_compile .github/scripts/phase13-instagram-comment-replies.py
+          python3 .github/scripts/phase13-instagram-comment-replies.py
