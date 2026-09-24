@@ -32,7 +32,7 @@ The authorized TikTok user must have the `video.publish` scope and the Direct Po
 Optional repository variable:
 - INSTAGRAM_GRAPH_VERSION (defaults to v25.0)
 
-The account must be an eligible Instagram professional account and the token must have content-publishing permission.
+The account must be an eligible Instagram professional account. For Instagram Login, Phase 11 verifies the token's `user_id` (the professional-account ID); the `id` field returned by `/me` is app-scoped and is not used as the publishing account ID. The real publishing transaction remains the authoritative check for `instagram_business_content_publish`.
 
 ## Safety controls
 
