@@ -262,9 +262,14 @@ def main():
     }))
 
     if initialized:
+        # First activation must prove that the token can read comments on every
+        # already-published managed Reel before enabling the reply worker.
+        for media_id in media_ids:
+            comments = fetch_comments(media_id)
+            print(json.dumps({"activationMediaId": media_id, "commentReadAccess": "pass", "commentsFetched": len(comments)}))
         state["lastRunAtUtc"] = iso_now()
         state_sha = save_state(state, state_sha)
-        print(json.dumps({"activation": "pass", "message": "Comment automation activated; older comments will not be auto-replied to."}))
+        print(json.dumps({"activation": "pass", "message": "Comment read access verified; older comments will not be auto-replied to."}))
         return
 
     candidates = []
