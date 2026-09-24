@@ -12,7 +12,8 @@
         "videoId": "M7mEPjO60No"
       },
       "status": "published",
-      "videoSha256": "d6418ecd305d86fdeff14f443940bcb33db7bc2999cd316d7ed2b57e185028dd"
+      "videoSha256": "d6418ecd305d86fdeff14f443940bcb33db7bc2999cd316d7ed2b57e185028dd",
+      "phase11RunId": 35898049523
     },
     {
       "clipFile": "clip_02.mp4",
@@ -23,7 +24,8 @@
         "videoId": "CRfoLqS83n4"
       },
       "status": "published",
-      "videoSha256": "d15acee6c61f3c77141413e23bd29534f6ed596e9510c0d022c44219748cfaaf"
+      "videoSha256": "d15acee6c61f3c77141413e23bd29534f6ed596e9510c0d022c44219748cfaaf",
+      "phase11RunId": 35898049523
     },
     {
       "clipFile": "clip_01.mp4",
@@ -34,7 +36,8 @@
         "mediaId": "17908647225307322"
       },
       "status": "published",
-      "videoSha256": "d6418ecd305d86fdeff14f443940bcb33db7bc2999cd316d7ed2b57e185028dd"
+      "videoSha256": "d6418ecd305d86fdeff14f443940bcb33db7bc2999cd316d7ed2b57e185028dd",
+      "phase11RunId": 35989379491
     },
     {
       "clipFile": "clip_02.mp4",
@@ -45,7 +48,8 @@
         "mediaId": "18053726534583511"
       },
       "status": "published",
-      "videoSha256": "d15acee6c61f3c77141413e23bd29534f6ed596e9510c0d022c44219748cfaaf"
+      "videoSha256": "d15acee6c61f3c77141413e23bd29534f6ed596e9510c0d022c44219748cfaaf",
+      "phase11RunId": 35989379491
     }
   ],
   "schemaVersion": 1
