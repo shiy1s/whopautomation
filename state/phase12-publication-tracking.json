@@ -50,6 +50,82 @@
       "status": "verified",
       "trackedAtUtc": "2026-09-24T07:23:05Z",
       "videoCount": 2
+    },
+    {
+      "instagramSnapshots": [
+        {
+          "captionPresent": true,
+          "clipFile": "clip_01.mp4",
+          "mediaId": "17908647225307322",
+          "mediaProductType": "REELS",
+          "mediaType": "VIDEO",
+          "permalink": "https://www.instagram.com/reel/DdqtTCbDD-Y/",
+          "publishedAt": "2026-09-24T10:49:31+0000",
+          "trackedAtUtc": "2026-09-24T11:19:16Z",
+          "videoSha256": "d6418ecd305d86fdeff14f443940bcb33db7bc2999cd316d7ed2b57e185028dd"
+        },
+        {
+          "captionPresent": true,
+          "clipFile": "clip_02.mp4",
+          "mediaId": "18053726534583511",
+          "mediaProductType": "REELS",
+          "mediaType": "VIDEO",
+          "permalink": "https://www.instagram.com/reel/DdqtXv6DnoZ/",
+          "publishedAt": "2026-09-24T10:50:10+0000",
+          "trackedAtUtc": "2026-09-24T11:19:16Z",
+          "videoSha256": "d15acee6c61f3c77141413e23bd29534f6ed596e9510c0d022c44219748cfaaf"
+        }
+      ],
+      "instagramVideoCount": 2,
+      "phase": 12,
+      "phase11HeadSha": "eae0fb15d7a2513fd471220225cce69179764b5a",
+      "phase11RunId": 35989379491,
+      "platforms": [
+        "youtube",
+        "instagram"
+      ],
+      "schemaVersion": 1,
+      "snapshots": [
+        {
+          "channelId": "UCT71Z5DHA5xWKLWdGLYiORA",
+          "clipFile": "clip_01.mp4",
+          "commentCount": "0",
+          "definition": "hd",
+          "descriptionPresent": true,
+          "dimension": "2d",
+          "duration": "PT1M1S",
+          "likeCount": "0",
+          "privacyStatus": "public",
+          "publishedAt": "2026-09-23T17:24:15Z",
+          "title": "RICOCHET Enforcement: Call of Duty Legal Notice Footage",
+          "trackedAtUtc": "2026-09-24T11:19:15Z",
+          "uploadStatus": "processed",
+          "videoId": "M7mEPjO60No",
+          "videoSha256": "d6418ecd305d86fdeff14f443940bcb33db7bc2999cd316d7ed2b57e185028dd",
+          "viewCount": "4"
+        },
+        {
+          "channelId": "UCT71Z5DHA5xWKLWdGLYiORA",
+          "clipFile": "clip_02.mp4",
+          "commentCount": "0",
+          "definition": "hd",
+          "descriptionPresent": true,
+          "dimension": "2d",
+          "duration": "PT27S",
+          "likeCount": "0",
+          "privacyStatus": "public",
+          "publishedAt": "2026-09-23T17:48:16Z",
+          "title": "Call of Duty RICOCHET: Cheat Provider Legal Notice",
+          "trackedAtUtc": "2026-09-24T11:19:15Z",
+          "uploadStatus": "processed",
+          "videoId": "CRfoLqS83n4",
+          "videoSha256": "d15acee6c61f3c77141413e23bd29534f6ed596e9510c0d022c44219748cfaaf",
+          "viewCount": "4"
+        }
+      ],
+      "status": "verified",
+      "trackedAtUtc": "2026-09-24T11:19:16Z",
+      "videoCount": 2
     }
   ]
 }
