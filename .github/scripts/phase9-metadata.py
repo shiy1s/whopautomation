@@ -172,7 +172,7 @@ for index, report in enumerate(clip_reports, 1):
         "campaignId": rules_doc["campaignId"],
         "campaignName": rules_doc["campaignName"],
         "sourcePhase": 8,
-        "metadataPolicy": "deterministic_campaign_rules_v1",
+        "metadataPolicy": "campaign_rules_plus_current_web_signal_v1",
     }
 
     item = {
@@ -233,12 +233,15 @@ manifest = {
     "campaignName": rules_doc["campaignName"],
     "metadataPolicy": {
         "deterministic": True,
-        "aiGeneration": False,
-        "sourceOfTruth": "persisted_campaign_rules_and_phase8_qc",
+        "aiGeneration": True,
+        "aiGenerationScope": "hashtags_only",
+        "sourceOfTruth": "persisted_campaign_rules_and_phase8_qc_plus_current_web_signal",
+        "hashtagSource": HASHTAG_SOURCE,
         "noUnverifiedClaims": True,
         "ftcDisclosure": disclosure,
         "requiredAccountTag": account_tag,
-        "additionalHashtagLimit": 3,\n        "dynamicHashtags": True,
+        "additionalHashtagLimit": 3,
+        "dynamicHashtags": True,
     },
     "campaignCompliance": {
         "officialSourceRequired": rules["content"]["officialFootageOnly"],
