@@ -103,6 +103,24 @@ def youtube_preflight():
   "scopeChecked":"youtube.upload"
  }))
 
+def instagram_preflight():
+ tok=os.environ["INSTAGRAM_ACCESS_TOKEN"]; ig=os.environ["INSTAGRAM_USER_ID"]; v=(os.environ.get("INSTAGRAM_GRAPH_VERSION") or "v25.0")
+ q=urllib.parse.urlencode({"fields":"id,username,account_type","access_token":tok})
+ d=http_json(f"https://graph.instagram.com/{v}/me?{q}")
+ returned=str(d.get("id") or d.get("user_id") or "")
+ if returned != str(ig):
+  die(f"Instagram account mismatch: token resolves to {returned or 'unknown'}, configured INSTAGRAM_USER_ID is {ig}")
+ if d.get("account_type") and d.get("account_type") not in ("BUSINESS","CREATOR"):
+  die(f"Instagram account is not professional: account_type={d.get('account_type')}")
+ print(json.dumps({
+  "instagramOAuth":"pass",
+  "instagramApi":"profile_verified",
+  "instagramUserId":str(ig),
+  "instagramUsername":d.get("username"),
+  "accountType":d.get("account_type"),
+  "contentPublishProbe":"deferred_to_publish_transaction"
+ }))
+
 def youtube(c):
  from google.oauth2.credentials import Credentials
  from google.auth.transport.requests import Request
@@ -156,7 +174,11 @@ def main():
  if os.getenv("PHASE11_PREFLIGHT")=="1":
   if "youtube" in PLATFORMS:
    youtube_preflight()
+  if "instagram" in PLATFORMS:
+   instagram_preflight()
   print(json.dumps({"preflight":"pass","platforms":PLATFORMS,"clipCount":2,"phase9RunId":m["phase9RunId"]})); return
+ if os.getenv("CONFIRM_PUBLISH")=="TEST":
+  print(json.dumps({"dryRun":"pass","platforms":PLATFORMS,"clipCount":2,"phase9RunId":m["phase9RunId"],"publishingSkipped":True})); return
  if os.getenv("CONFIRM_PUBLISH")!="PUBLISH": die("Publishing locked: set confirm_publish=PUBLISH")
  l,ls=ledger()
  for p in PLATFORMS:
