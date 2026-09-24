@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "enabledAtUtc": null,
+  "account": {
+    "instagramUserId": "17841427455811279",
+    "username": "daily._contents"
+  },
+  "processed": {},
+  "lastRunAtUtc": null,
+  "statistics": {
+    "seen": 0,
+    "replied": 0,
+    "skipped": 0,
+    "errors": 0
+  }
+}
