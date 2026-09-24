@@ -105,19 +105,23 @@ def youtube_preflight():
 
 def instagram_preflight():
  tok=os.environ["INSTAGRAM_ACCESS_TOKEN"]; ig=os.environ["INSTAGRAM_USER_ID"]; v=(os.environ.get("INSTAGRAM_GRAPH_VERSION") or "v25.0")
- q=urllib.parse.urlencode({"fields":"id,username,account_type","access_token":tok})
+ # Instagram Login exposes the professional-account ID as user_id. The id
+ # field is an app-scoped identifier and must not be compared with IG_USER_ID.
+ q=urllib.parse.urlencode({"fields":"user_id,username,account_type","access_token":tok})
  d=http_json(f"https://graph.instagram.com/{v}/me?{q}")
- returned=str(d.get("id") or d.get("user_id") or "")
+ returned=str(d.get("user_id") or "")
+ if not returned: die("Instagram Login profile did not return user_id")
  if returned != str(ig):
-  die(f"Instagram account mismatch: token resolves to {returned or 'unknown'}, configured INSTAGRAM_USER_ID is {ig}")
- if d.get("account_type") and d.get("account_type") not in ("BUSINESS","CREATOR"):
-  die(f"Instagram account is not professional: account_type={d.get('account_type')}")
+  die(f"Instagram account mismatch: token resolves to user_id {returned}, configured INSTAGRAM_USER_ID is {ig}")
+ account_type=str(d.get("account_type") or "")
+ if account_type and account_type not in ("BUSINESS","MEDIA_CREATOR"):
+  die(f"Instagram account is not professional: account_type={account_type}")
  print(json.dumps({
   "instagramOAuth":"pass",
   "instagramApi":"profile_verified",
-  "instagramUserId":str(ig),
+  "instagramUserId":returned,
   "instagramUsername":d.get("username"),
-  "accountType":d.get("account_type"),
+  "accountType":account_type,
   "contentPublishProbe":"deferred_to_publish_transaction"
  }))
 
