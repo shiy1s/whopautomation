@@ -5,6 +5,7 @@ from pathlib import Path
 REPO = os.environ["GITHUB_REPOSITORY"]
 ROOT = Path(os.environ.get("PACKAGE_DIR", "phase10-publishing-package"))
 PHASE11_RUN_ID = os.environ["PHASE11_RUN_ID"]
+PLATFORM_SELECTION = os.environ.get("PHASE12_PLATFORMS", "youtube_instagram")
 LEDGER_PATH = Path("state/phase11-publication-ledger.json")
 TRACKING_PATH = Path("state/phase12-publication-tracking.json")
 
@@ -168,18 +169,19 @@ def main():
         snapshots.append(snap)
 
     instagram_pubs = [x for x in pubs if x.get("platform") == "instagram" and x.get("status") == "published"]
-    instagram_token = os.environ.get("INSTAGRAM_ACCESS_TOKEN")
-    if instagram_pubs and not instagram_token:
-        die("Instagram publications exist but INSTAGRAM_ACCESS_TOKEN is missing")
     instagram_snapshots = []
-    for p in instagram_pubs:
-        media_id = p.get("remote", {}).get("mediaId")
-        if not media_id:
-            die(f"Published Instagram record has no mediaId: {p.get('clipFile')}")
-        snap = instagram_snapshot(media_id, instagram_token)
-        snap["clipFile"] = p["clipFile"]
-        snap["videoSha256"] = p["videoSha256"]
-        instagram_snapshots.append(snap)
+    if PLATFORM_SELECTION == "youtube_instagram":
+        instagram_token = os.environ.get("INSTAGRAM_ACCESS_TOKEN")
+        if instagram_pubs and not instagram_token:
+            die("Instagram publications exist but INSTAGRAM_ACCESS_TOKEN is missing")
+        for p in instagram_pubs:
+            media_id = p.get("remote", {}).get("mediaId")
+            if not media_id:
+                die(f"Published Instagram record has no mediaId: {p.get('clipFile')}")
+            snap = instagram_snapshot(media_id, instagram_token)
+            snap["clipFile"] = p["clipFile"]
+            snap["videoSha256"] = p["videoSha256"]
+            instagram_snapshots.append(snap)
 
     previous = None
     try:
@@ -198,7 +200,7 @@ def main():
         "phase11RunId": int(PHASE11_RUN_ID),
         "phase11HeadSha": run["headSha"],
         "trackedAtUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "platforms": ["youtube", "instagram"] if instagram_snapshots else ["youtube"],
+        "platforms": ["youtube", "instagram"] if PLATFORM_SELECTION == "youtube_instagram" else ["youtube"],
         "videoCount": len(snapshots),
         "instagramVideoCount": len(instagram_snapshots),
         "snapshots": snapshots,
