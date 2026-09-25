@@ -1,6 +1,20 @@
 name: MediaSilo AI Input Worker
 on:
   workflow_dispatch:
+    inputs:
+      source_type:
+        description: 'Verified content source type'
+        required: true
+        default: 'mediasilo'
+        type: string
+      source_url:
+        description: 'Verified content source URL'
+        required: true
+        type: string
+      campaign_id:
+        description: 'Selected campaign ID'
+        required: true
+        type: string
 jobs:
   phase4:
     runs-on: ubuntu-latest
@@ -15,6 +29,8 @@ jobs:
           npm init -y
           npm install --no-audit --no-fund playwright@1.55.0
           npx playwright install --with-deps chromium
+      - name: Install Google Drive downloader
+        run: python -m pip install --disable-pip-version-check --no-input gdown==6.4.0
       - name: Install FFmpeg
         run: |
           sudo apt-get update
@@ -24,7 +40,10 @@ jobs:
       - name: Build Phase 4 AI input
         run: node .github/scripts/phase4-worker.js
       - name: Validate Phase 4 artifact
-        run: node -e "const fs=require('fs');const p='phase4-input/phase4-input-manifest.json';if(!fs.existsSync(p))throw new Error('Manifest missing');const m=JSON.parse(fs.readFileSync(p));if(m.complete!==true||m.videoAssetCount!==2||m.results.length!==2||m.results.some(x=>x.frameCount!==12)||m.frameCount!==24)throw new Error('Phase 4 manifest validation failed');console.log('PHASE4_ARTIFACT_VALIDATION_PASS');"
+        run: node -e "const fs=require('fs');const p='phase4-input/phase4-input-manifest.json';if(!fs.existsSync(p))throw new Error('Manifest missing');const m=JSON.parse(fs.readFileSync(p));if(m.complete!==true||m.videoAssetCount!==2||m.results.length!==2||m.results.some(x=>x.frameCount!==12)||m.frameCount!==24)throw new Error('Phase 4 manifest validation failed');if(m.sourceType!==process.env.SOURCE_TYPE||m.sourceUrl!==process.env.SOURCE_URL)throw new Error('Phase 4 source provenance mismatch');console.log('PHASE4_ARTIFACT_VALIDATION_PASS');"
+        env:
+          SOURCE_TYPE: ${{ inputs.source_type }}
+          SOURCE_URL: ${{ inputs.source_url }}
       - name: Upload Phase 4 evidence
         if: always()
         uses: actions/upload-artifact@v4
