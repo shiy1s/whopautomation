@@ -40,7 +40,10 @@ if len(phase7.get("plans", [])) != 2:
 if len(phase7.get("sourceAssets", [])) != 2:
     raise RuntimeError("Phase 7 provenance must contain exactly two source assets.")
 
-rules = json.loads((ROOT / "campaign-rules/07c3822c-53e1-4420-b650-01b088b9852c.json").read_text(encoding="utf-8"))
+campaign_id = str(phase7.get("campaignId") or phase7.get("campaign", {}).get("campaignId") or "").strip()
+if not campaign_id:
+    raise RuntimeError("Phase 7 manifest does not identify campaignId.")
+rules = json.loads((ROOT / "campaign-rules" / f"{campaign_id}.json").read_text(encoding="utf-8"))
 campaign_rules = rules["rules"]
 required_text = campaign_rules["onScreenText"]["requiredLines"]
 if not campaign_rules["branding"]["logoRequired"]:
@@ -52,7 +55,7 @@ if not campaign_rules["onScreenText"]["required"]:
 if campaign_rules["video"]["minimumDurationSeconds"] != 10:
     raise RuntimeError("Unexpected campaign minimum duration.")
 
-expected_text = (ROOT / "campaign_text.txt").read_text(encoding="utf-8").strip()
+expected_text = (ROOT / "campaign_text.txt").read_text(encoding="utf-8").strip() if text_required else ""
 if not expected_text:
     raise RuntimeError("campaign_text.txt is empty.")
 
@@ -186,7 +189,7 @@ for video in videos:
     fps = rate_value(v.get("avg_frame_rate"))
 
     checks = {
-        "duration10to60": MIN_DURATION <= duration <= MAX_DURATION,
+        "duration10to60": max(MIN_DURATION, minimum_duration) <= duration <= MAX_DURATION,
         "vertical1080x1920": int(v.get("width") or 0) == WIDTH and int(v.get("height") or 0) == HEIGHT,
         "bitrateAtLeast500kbps": bitrate >= MIN_BITRATE,
         "h264Video": v.get("codec_name") == "h264",
