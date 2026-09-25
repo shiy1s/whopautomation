@@ -134,7 +134,7 @@ def analyze_asset(client, asset, campaign_rules):
 You are the semantic evidence analyst for a production short-form video pipeline.
 
 Analyze ONLY the supplied real frame images. These are representative frames extracted
-from an official Call of Duty RICOCHET campaign asset. Do not invent anything that is
+from the verified campaign content source. Do not invent anything that is
 not visibly supported by a frame.
 
 CAMPAIGN CONTEXT:
@@ -168,7 +168,7 @@ Return ONLY valid JSON in this exact structure:
       "onScreenText": "legible visible text or empty string",
       "entities": ["visible entity/object 1"],
       "context": "concrete visual context only",
-      "ricochetRelevance": 0.0,
+      "campaignRelevance": 0.0,
       "enforcementSignals": ["visible signal"],
       "safetyFlags": [],
       "language": "English",
