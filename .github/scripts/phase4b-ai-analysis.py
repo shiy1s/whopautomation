@@ -249,15 +249,20 @@ There must be exactly {len(frame_records)} frame objects, one per supplied frame
 
 def main():
     manifest_path = Path("phase4-input/phase4-input-manifest.json")
-    campaign_id = str(manifest.get("campaignId") or "").strip()\n    if not campaign_id:\n        campaign_id = str(manifest.get("campaignRules", {}).get("campaignId") or "").strip()\n    rules_path = Path("campaign-rules") / f"{campaign_id}.json"
     output_dir = Path("phase4-analysis")
 
     if not manifest_path.is_file():
         raise RuntimeError(f"Missing Phase 4 input manifest: {manifest_path}")
-    if not rules_path.is_file():
-        raise RuntimeError(f"Missing persisted campaign rules: {rules_path}")
 
     manifest = load_json(manifest_path)
+    campaign_id = str(manifest.get("campaignId") or "").strip()
+    if not campaign_id:
+        campaign_id = str(manifest.get("campaignRules", {}).get("campaignId") or "").strip()
+    if not campaign_id:
+        raise RuntimeError("Phase 4 input manifest does not identify campaignId.")
+    rules_path = Path("campaign-rules") / f"{campaign_id}.json"
+    if not rules_path.is_file():
+        raise RuntimeError(f"Missing persisted campaign rules: {rules_path}")
     campaign_rules = load_json(rules_path)
     validate_input(manifest)
     client = genai.Client(api_key=require_api_key())
