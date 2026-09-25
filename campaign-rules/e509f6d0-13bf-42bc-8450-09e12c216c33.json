@@ -1,6 +1,6 @@
 {
   "schemaVersion": "3.0",
-  "generatedAt": "2026-09-25T15:47:22.729Z",
+  "generatedAt": "2026-09-25T15:50:25.875Z",
   "campaignId": "e509f6d0-13bf-42bc-8450-09e12c216c33",
   "campaignName": "Backyard Breaks [Clipping Campaign]",
   "sourceDocumentUrl": "https://docs.google.com/document/d/197leSvDY78QbsKP7GsWi5YWSzDFrktCB/edit?usp=sharing&ouid=101989765524678723293&rtpof=true&sd=true",
@@ -122,7 +122,7 @@
       "sourceUrl": "https://drive.google.com/drive/folders/1UTuq4lOa8FkQtPmBwL_SDk82T5F-IatS?usp=share_link"
     },
     "extraction": {
-      "extractedAt": "2026-09-25T15:47:20.548Z",
+      "extractedAt": "2026-09-25T15:50:23.893Z",
       "characterCount": 4409,
       "lineCount": 77
     }
@@ -174,7 +174,7 @@
   "validation": {
     "status": "valid",
     "errors": [],
-    "validatedAt": "2026-09-25T15:47:22.026Z",
+    "validatedAt": "2026-09-25T15:50:25.168Z",
     "ruleCount": 7,
     "evidenceBacked": true,
     "officialContentFolderVerifiedFrom": "campaignBriefLinks",
