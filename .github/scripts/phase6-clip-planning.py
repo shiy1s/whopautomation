@@ -91,7 +91,7 @@ def main():
             raise RuntimeError(f"Phase 4B analysis for {data.get('assetId')} must contain 12 frames.")
         analyses[data["assetId"]] = data
 
-    rules = load("campaign-rules/07c3822c-53e1-4420-b650-01b088b9852c.json")
+    campaign_id = str(phase5.get("campaign", {}).get("campaignId") or "").strip()\n    if not campaign_id:\n        raise RuntimeError("Phase 5 manifest does not identify campaignId.")\n    rules = load(str(Path("campaign-rules") / f"{campaign_id}.json"))
 
     plans = []
     for selection in phase5["selections"]:
