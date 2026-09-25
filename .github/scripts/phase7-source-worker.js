@@ -106,19 +106,23 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
     };
     const entries=walk(tmpDir).filter(p=>/\.(mp4|mov|m4v|webm|mkv)$/i.test(p)).sort((a,b)=>a.localeCompare(b));
     if(entries.length<2) throw new Error('GOOGLE_DRIVE_SOURCE_INSUFFICIENT_VIDEO: '+entries.length+' video files found.');
+    const plans=Array.isArray(phase6.clipPlans)?phase6.clipPlans:[];
+    const selected=plans.map(p=>entries.find(e=>path.basename(e).toLowerCase()===path.basename(String(p.fileName||'')).toLowerCase())||entries.find(e=>path.basename(e).toLowerCase().includes(path.basename(String(p.fileName||'')).toLowerCase()))).filter(Boolean);
+    const finalEntries=[];
+    for(const e of selected){if(!finalEntries.includes(e))finalEntries.push(e);}
+    for(const e of entries){if(finalEntries.length>=2)break;if(!finalEntries.includes(e))finalEntries.push(e);}
+    if(finalEntries.length!==2) throw new Error('Could not deterministically resolve two Google Drive source files.');
     const assets=[];
     for(let i=0;i<2;i++){
-      const e=finalEntries[i];
-      const name=path.basename(String(e.path||('source_'+(i+1)+'.mp4'))).replace(/[^a-zA-Z0-9._-]+/g,'_');
-      const dest=path.join(tmpDir,name);
-      cp.execFileSync('gdown',['--continue','--retries','3',String(e.url),'-O',dest],{stdio:'inherit'});
-      const probe=runFFprobe(dest);
+      const filePath=finalEntries[i];
+      const name=path.basename(filePath).replace(/[^a-zA-Z0-9._-]+/g,'_');
+      const probe=runFFprobe(filePath);
       if(!probe.valid||probe.duration<10) throw new Error('Google Drive source failed ffprobe: '+name);
       const expected=Number(plans[i]?.sourceDurationSeconds||0);
       if(expected>0&&Math.abs(expected-probe.duration)>0.5) throw new Error(name+': source duration mismatch plan='+expected+' actual='+probe.duration);
       const target=path.join(outDir,'source_'+String(i+1).padStart(2,'0')+'.mp4');
-      fs.copyFileSync(dest,target);
-      assets.push({assetId:String(plans[i]?.assetId||'gdrive-'+(i+1)),fileName:name,path:target,durationSeconds:probe.duration,width:probe.width,height:probe.height,sizeBytes:probe.size,sourceType:'GoogleDrive',sourceUrl:String(e.url)});
+      fs.copyFileSync(filePath,target);
+      assets.push({assetId:String(plans[i]?.assetId||'gdrive-'+(i+1)),fileName:name,path:target,durationSeconds:probe.duration,width:probe.width,height:probe.height,sizeBytes:probe.size,sourceType:'GoogleDrive',sourceUrl});
     }
     const manifest={schemaVersion:'2.0',complete:true,sourceType:'GoogleDrive',sourceUrl,campaignId:String(phase6.campaign?.campaignId||''),assets,createdAt:new Date().toISOString()};
     fs.writeFileSync('phase7-source-manifest.json',JSON.stringify(manifest,null,2));
