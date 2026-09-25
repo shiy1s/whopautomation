@@ -227,7 +227,12 @@ def main():
 
     validate_phase4b(manifest, assets)
 
-    campaign_id = str(manifest.get("campaignRules", {}).get("campaignId") or "").strip()\n    if not campaign_id:\n        campaign_id = str(manifest.get("campaign", {}).get("campaignId") or "").strip()\n    if not campaign_id:\n        raise RuntimeError("Phase 4B manifest does not identify campaignId.")\n    rules = load(str(Path("campaign-rules") / f"{campaign_id}.json"))
+    campaign_id = str(manifest.get("campaignRules", {}).get("campaignId") or "").strip()
+    if not campaign_id:
+        campaign_id = str(manifest.get("campaign", {}).get("campaignId") or "").strip()
+    if not campaign_id:
+        raise RuntimeError("Phase 4B manifest does not identify campaignId.")
+    rules = load(str(Path("campaign-rules") / f"{campaign_id}.json"))
     client = genai.Client(api_key=require_key())
 
     selections = []
