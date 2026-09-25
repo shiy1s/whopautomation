@@ -24,19 +24,11 @@ jobs:
       - name: Select Phase 4A run
         id: source
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          DISPATCH_RUN_ID: ${{ inputs.phase4_run_id }}
-          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ID: ${{ inputs.phase4_run_id }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            RUN_ID="$DISPATCH_RUN_ID"
-          else
-            RUN_ID="$WORKFLOW_RUN_ID"
-          fi
           test -n "$RUN_ID"
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "Using Phase 4A run: $RUN_ID"
 
       - name: Verify Phase 4A run succeeded
         env:
