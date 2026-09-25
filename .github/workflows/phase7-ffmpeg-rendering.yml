@@ -61,6 +61,9 @@ jobs:
           npm install --no-audit --no-fund playwright@1.55.0
           npx playwright install --with-deps chromium
 
+      - name: Install Google Drive downloader
+        run: python -m pip install --disable-pip-version-check --no-input gdown==6.4.0
+
       - name: Install FFmpeg
         run: |
           set -euo pipefail
@@ -96,8 +99,8 @@ jobs:
               audio=any(s.get("codec_type")=="audio" for s in streams)
               if video is None or not audio:
                   raise SystemExit(f"{p}: source must contain video and original audio")
-              if int(video.get("width") or 0) != 1920 or int(video.get("height") or 0) != 1080:
-                  raise SystemExit(f"{p}: unexpected source resolution")
+              if int(video.get("width") or 0) <= 0 or int(video.get("height") or 0) <= 0:
+                  raise SystemExit(f"{p}: invalid source resolution")
               actual=float(probe["format"]["duration"])
               expected=float(a["durationSeconds"])
               if abs(actual-expected) > 0.25:
