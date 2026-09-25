@@ -153,26 +153,41 @@ def main():
     ledger, _ = read_json_from_repo(str(LEDGER_PATH))
     pubs = ledger.get("publications", [])
     youtube_pubs = [x for x in pubs if x.get("platform") == "youtube" and x.get("status") == "published"]
-    if not youtube_pubs:
-        die("No published YouTube records found in Phase 11 ledger")
-
-    token = refresh_youtube_token()
-    snapshots = []
-    for p in youtube_pubs:
-        remote = p.get("remote", {})
-        video_id = remote.get("videoId")
-        if not video_id:
-            die(f"Published YouTube record has no videoId: {p.get('clipFile')}")
-        snap = youtube_snapshot(video_id, token)
-        snap["clipFile"] = p["clipFile"]
-        snap["videoSha256"] = p["videoSha256"]
-        snapshots.append(snap)
-
     instagram_pubs = [x for x in pubs if x.get("platform") == "instagram" and x.get("status") == "published"]
+
+    snapshots = []
+    if PLATFORM_SELECTION in ("youtube", "youtube_instagram"):
+        if not youtube_pubs:
+            die("No published YouTube records found in Phase 11 ledger")
+        token = refresh_youtube_token()
+        for p in youtube_pubs:
+            remote = p.get("remote", {})
+            video_id = remote.get("videoId")
+            if not video_id:
+                die(f"Published YouTube record has no videoId: {p.get('clipFile')}")
+            snap = youtube_snapshot(video_id, token)
+            snap["clipFile"] = p["clipFile"]
+            snap["videoSha256"] = p["videoSha256"]
+            snapshots.append(snap)
+
     instagram_snapshots = []
     if PLATFORM_SELECTION == "youtube_instagram":
         instagram_token = os.environ.get("INSTAGRAM_ACCESS_TOKEN")
         if instagram_pubs and not instagram_token:
+            die("Instagram publications exist but INSTAGRAM_ACCESS_TOKEN is missing")
+        for p in instagram_pubs:
+            media_id = p.get("remote", {}).get("mediaId")
+            if not media_id:
+                die(f"Published Instagram record has no mediaId: {p.get('clipFile')}")
+            snap = instagram_snapshot(media_id, instagram_token)
+            snap["clipFile"] = p["clipFile"]
+            snap["videoSha256"] = p["videoSha256"]
+            instagram_snapshots.append(snap)
+    elif PLATFORM_SELECTION == "instagram":
+        if not instagram_pubs:
+            die("No published Instagram records found in Phase 11 ledger")
+        instagram_token = os.environ.get("INSTAGRAM_ACCESS_TOKEN")
+        if not instagram_token:
             die("Instagram publications exist but INSTAGRAM_ACCESS_TOKEN is missing")
         for p in instagram_pubs:
             media_id = p.get("remote", {}).get("mediaId")
@@ -200,7 +215,7 @@ def main():
         "phase11RunId": int(PHASE11_RUN_ID),
         "phase11HeadSha": run["headSha"],
         "trackedAtUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "platforms": ["youtube", "instagram"] if PLATFORM_SELECTION == "youtube_instagram" else ["youtube"],
+        "platforms": ["youtube", "instagram"] if PLATFORM_SELECTION == "youtube_instagram" else ([ "instagram" ] if PLATFORM_SELECTION == "instagram" else ["youtube"]),
         "videoCount": len(snapshots),
         "instagramVideoCount": len(instagram_snapshots),
         "snapshots": snapshots,
