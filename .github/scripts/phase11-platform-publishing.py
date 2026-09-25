@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT=Path(os.environ.get("PACKAGE_DIR","phase10"))
 REPO=os.environ["GITHUB_REPOSITORY"]; TOKEN=os.environ["GH_TOKEN"]
 PLATFORMS=[x for x in os.environ.get("PLATFORMS","all").split(",") if x]
-if PLATFORMS==["all"]: PLATFORMS=["youtube","tiktok","instagram"]
+if PLATFORMS==["all"]: PLATFORMS=["youtube","instagram"]
 
 def die(s): raise RuntimeError(s)
 def jfile(p): return json.loads(Path(p).read_text())
