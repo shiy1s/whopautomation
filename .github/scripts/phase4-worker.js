@@ -87,7 +87,7 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
     fs.mkdirSync(outDir,{recursive:true});
     fs.mkdirSync(tmpDir,{recursive:true});
     try{
-      if(/drive\\.google\\.com\\/drive\\/folders\\//i.test(sourceUrl)){
+      if(sourceUrl.toLowerCase().includes('/drive/folders/')){
         cp.execFileSync('gdown',['--folder','--continue','--retries','3',sourceUrl,'-O',tmpDir],{stdio:'inherit'});
       }else{
         cp.execFileSync('gdown',['--continue','--retries','3',sourceUrl,'-O',path.join(tmpDir,'drive_source.mp4')],{stdio:'inherit'});
