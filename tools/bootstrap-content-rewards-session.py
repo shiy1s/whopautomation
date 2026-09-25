@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""One-time interactive bootstrap for the Content Rewards Playwright session.
+
+This script intentionally does not automate login. The user completes the normal
+Content Rewards/Whop login in a visible browser, then the authenticated browser
+state is exported for GitHub Actions.
+"""
+import base64
+import json
+from pathlib import Path
+from playwright.sync_api import sync_playwright
+
+OUT=Path("content-rewards-storage-state.json")
+
+with sync_playwright() as p:
+    browser=p.chromium.launch(headless=False)
+    context=browser.new_context()
+    page=context.new_page()
+    page.goto("https://contentrewards.com/creators",wait_until="domcontentloaded")
+    print("Complete the normal Content Rewards login in the opened browser.")
+    input("After you are fully logged in and can see the creator dashboard, press Enter here...")
+    state=context.storage_state()
+    OUT.write_text(json.dumps(state,indent=2),encoding="utf-8")
+    encoded=base64.b64encode(OUT.read_bytes()).decode()
+    print("\nCreated:",OUT.resolve())
+    print("Base64 length:",len(encoded))
+    print("\nAdd the base64 value as the GitHub Actions repository secret:")
+    print("CONTENT_REWARDS_STORAGE_STATE_B64")
+    print("\nDo not commit or paste the secret value into chat.")
+    browser.close()
