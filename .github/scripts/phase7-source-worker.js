@@ -72,7 +72,59 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
 };
 
 (async () => {
-  console.log('=== Starting Phase 4 MediaSilo Real-Media Worker ===');
+  const phase6Path = path.resolve('phase6-source/phase6-clip-plan-manifest.json');
+  if (!fs.existsSync(phase6Path)) throw new Error('Missing Phase 6 clip-plan manifest.');
+  const phase6 = JSON.parse(fs.readFileSync(phase6Path,'utf8'));
+  const assetSource = phase6.campaign?.assetSource || {};
+  const sourceType = String(assetSource.sourceType || '').toLowerCase();
+  const sourceUrl = String(assetSource.sourceUrl || assetSource.officialContentFolderUrl || '').trim();
+
+  if (sourceType === 'googledrive') {
+    console.log('=== Starting Phase 7 Google Drive source adapter ===');
+    if (!sourceUrl) throw new Error('Phase 7 Google Drive source URL missing.');
+    const outDir = path.resolve('sources');
+    const tmpDir = path.resolve('.tmp-media');
+    fs.rmSync(outDir,{recursive:true,force:true});
+    fs.rmSync(tmpDir,{recursive:true,force:true});
+    fs.mkdirSync(outDir,{recursive:true});
+    fs.mkdirSync(tmpDir,{recursive:true});
+
+    let listing;
+    try {
+      listing=JSON.parse(cp.execFileSync('gdown',[sourceUrl,'--json','--quiet'],{encoding:'utf8',maxBuffer:20*1024*1024}));
+    } catch(e) {
+      throw new Error('GOOGLE_DRIVE_LIST_FAILED: '+(e.stderr?String(e.stderr):e.message));
+    }
+    const entries=(Array.isArray(listing)?listing:[]).filter(x=>x&&x.url&&/\.(mp4|mov|m4v|webm|mkv)$/i.test(String(x.path||'')));
+    if(entries.length<2) throw new Error('GOOGLE_DRIVE_SOURCE_INSUFFICIENT_VIDEO: '+entries.length+' video files found.');
+    const plans=Array.isArray(phase6.clipPlans)?phase6.clipPlans:[];
+    const selected=plans.map(p=>entries.find(e=>path.basename(String(e.path))===path.basename(String(p.fileName)))||entries.find(e=>String(e.path).toLowerCase().includes(String(p.fileName).toLowerCase()))).filter(Boolean);
+    const finalEntries=[];
+    for(const e of selected){if(!finalEntries.some(x=>x.url===e.url))finalEntries.push(e);}
+    for(const e of entries){if(finalEntries.length>=2)break;if(!finalEntries.some(x=>x.url===e.url))finalEntries.push(e);}
+    if(finalEntries.length!==2) throw new Error('Could not deterministically resolve two Google Drive source files.');
+
+    const assets=[];
+    for(let i=0;i<2;i++){
+      const e=finalEntries[i];
+      const name=path.basename(String(e.path||('source_'+(i+1)+'.mp4'))).replace(/[^a-zA-Z0-9._-]+/g,'_');
+      const dest=path.join(tmpDir,name);
+      cp.execFileSync('gdown',['--continue','--retries','3',String(e.url),'-O',dest],{stdio:'inherit'});
+      const probe=runFFprobe(dest);
+      if(!probe.valid||probe.duration<10) throw new Error('Google Drive source failed ffprobe: '+name);
+      const expected=Number(plans[i]?.sourceDurationSeconds||0);
+      if(expected>0&&Math.abs(expected-probe.duration)>0.5) throw new Error(name+': source duration mismatch plan='+expected+' actual='+probe.duration);
+      const target=path.join(outDir,'source_'+String(i+1).padStart(2,'0')+'.mp4');
+      fs.copyFileSync(dest,target);
+      assets.push({assetId:String(plans[i]?.assetId||'gdrive-'+(i+1)),fileName:name,path:target,durationSeconds:probe.duration,width:probe.width,height:probe.height,sizeBytes:probe.size,sourceType:'GoogleDrive',sourceUrl:String(e.url)});
+    }
+    const manifest={schemaVersion:'2.0',complete:true,sourceType:'GoogleDrive',sourceUrl,campaignId:String(phase6.campaign?.campaignId||''),assets,createdAt:new Date().toISOString()};
+    fs.writeFileSync('phase7-source-manifest.json',JSON.stringify(manifest,null,2));
+    console.log('PHASE7_SOURCE_VALIDATION_PASS');
+    process.exit(0);
+  }
+
+  console.log('=== Starting Phase 7 MediaSilo Real-Media Worker ===');
   // Phase 4 consumes the committed Phase 2 inventory directly.
   // Do not pass the inventory through workflow_dispatch/base64 input: that
   // introduces an unnecessary corruption vector and makes the run non-deterministic.
