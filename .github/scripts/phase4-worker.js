@@ -86,13 +86,12 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
     fs.rmSync(tmpDir,{recursive:true,force:true});
     fs.mkdirSync(outDir,{recursive:true});
     fs.mkdirSync(tmpDir,{recursive:true});
-    try{
-      if(sourceUrl.toLowerCase().includes('/drive/folders/')){
-        cp.execFileSync('gdown',['--folder','--continue','--retries','3',sourceUrl,'-O',tmpDir],{stdio:'inherit'});
-      }else{
-        cp.execFileSync('gdown',['--continue','--retries','3',sourceUrl,'-O',path.join(tmpDir,'drive_source.mp4')],{stdio:'inherit'});
-      }
-    }catch(e){throw new Error('GOOGLE_DRIVE_DOWNLOAD_FAILED: '+(e.stderr?String(e.stderr):e.message));}
+    let sourceUrls=[];
+    try{sourceUrls=JSON.parse(process.env.INPUT_SOURCE_URLS||'[]');}catch{}
+    if(!Array.isArray(sourceUrls)||!sourceUrls.length) sourceUrls=[sourceUrl];
+    sourceUrls=[...new Set(sourceUrls.map(x=>String(x||'').trim()).filter(Boolean))];
+    if(!sourceUrls.length) throw new Error('GOOGLE_DRIVE_SOURCE_URLS_MISSING');
+    console.log('Google Drive source candidates:',sourceUrls.length);
     const walk=dir=>{
       const out=[];
       for(const ent of fs.readdirSync(dir,{withFileTypes:true})){
@@ -101,21 +100,44 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
       }
       return out;
     };
-    const files=walk(tmpDir).filter(p=>/\.(mp4|mov|m4v|webm|mkv)$/i.test(p)).sort();
-    if(files.length<2) throw new Error('GOOGLE_DRIVE_SOURCE_INSUFFICIENT_VIDEO: found '+files.length+' video files.');
-    const selected=files.slice(0,2);
+    const videoFiles=[];
+    for(let idx=0;idx<sourceUrls.length;idx++){
+      const url=sourceUrls[idx];
+      const targetDir=path.join(tmpDir,'source_'+String(idx+1).padStart(2,'0'));
+      fs.mkdirSync(targetDir,{recursive:true});
+      try{
+        if(url.toLowerCase().includes('/drive/folders/')){
+          cp.execFileSync('gdown',['--folder','--continue','--retries','3',url,'-O',targetDir],{stdio:'inherit'});
+        }else{
+          const target=path.join(targetDir,'download_'+String(idx+1).padStart(2,'0'));
+          cp.execFileSync('gdown',['--continue','--retries','3',url,'-O',target],{stdio:'inherit'});
+        }
+      }catch(e){
+        console.warn('Skipping inaccessible Google Drive source:',url,(e.stderr?String(e.stderr):e.message).slice(0,500));
+        continue;
+      }
+      for(const file of walk(targetDir).filter(p=>/\.(mp4|mov|m4v|webm|mkv)$/i.test(p))) videoFiles.push({file,sourceUrl:url});
+    }
+    if(videoFiles.length<2) throw new Error('GOOGLE_DRIVE_SOURCE_INSUFFICIENT_VIDEO: found '+videoFiles.length+' candidate video files from '+sourceUrls.length+' source URLs.');
+    const verified=[];
+    for(const item of videoFiles){
+      const probe=runFFprobe(item.file);
+      if(probe.valid&&probe.duration>=10) verified.push({...item,probe});
+      if(verified.length>=2) break;
+    }
+    if(verified.length<2) throw new Error('GOOGLE_DRIVE_SOURCE_INSUFFICIENT_VALID_VIDEO: found '+verified.length+' valid videos after ffprobe.');
     const results=[];
-    for(const filePath of selected){
-      const probe=runFFprobe(filePath);
-      if(!probe.valid||probe.duration<10) throw new Error('Google Drive source failed ffprobe: '+path.basename(filePath));
-      const assetId='gdrive-'+require('crypto').createHash('sha256').update(sourceUrl+'|'+path.relative(tmpDir,filePath)).digest('hex').slice(0,24);
+    for(const item of verified.slice(0,2)){
+      const filePath=item.file, probe=item.probe;
+      const rel=path.relative(tmpDir,filePath);
+      const assetId='gdrive-'+require('crypto').createHash('sha256').update(item.sourceUrl+'|'+rel).digest('hex').slice(0,24);
       const frameDir=path.join(outDir,assetId,'frames');
       const frames=extractFrames(filePath,frameDir,probe.duration,12);
-      results.push({assetId,fileName:path.basename(filePath),folder:path.dirname(path.relative(tmpDir,filePath))||'root',durationSeconds:probe.duration,width:probe.width,height:probe.height,fileSizeBytes:probe.size,frameCount:frames.length,frames,provenance:'googledrive_real_media_ffprobe_extracted',sourceType:'GoogleDrive',sourceUrl});
+      results.push({assetId,fileName:path.basename(filePath),folder:path.dirname(rel)==='.'?'root':path.dirname(rel),durationSeconds:probe.duration,width:probe.width,height:probe.height,fileSizeBytes:probe.size,frameCount:frames.length,frames,provenance:'googledrive_real_media_ffprobe_extracted',sourceType:'GoogleDrive',sourceUrl:item.sourceUrl});
     }
-    const manifest={complete:true,sourceType:'GoogleDrive',sourceUrl,campaignId,videoAssetCount:2,frameCount:24,results,createdAt:new Date().toISOString()};
+    const manifest={complete:true,sourceType:'GoogleDrive',sourceUrl,sourceUrls,campaignId,videoAssetCount:results.length,frameCount:results.reduce((s,r)=>s+r.frameCount,0),results,createdAt:new Date().toISOString()};
     fs.writeFileSync(path.join(outDir,'phase4-input-manifest.json'),JSON.stringify(manifest,null,2));
-    fs.writeFileSync('mediasilo-debug.json',JSON.stringify({sourceType:'GoogleDrive',sourceUrl,campaignId,assets:results.map(x=>({assetId:x.assetId,fileName:x.fileName,duration:x.durationSeconds,frameCount:x.frameCount}))},null,2));
+    fs.writeFileSync('mediasilo-debug.json',JSON.stringify({sourceType:'GoogleDrive',sourceUrl,sourceUrls,campaignId,assets:results.map(x=>({assetId:x.assetId,fileName:x.fileName,duration:x.durationSeconds,frameCount:x.frameCount,sourceUrl:x.sourceUrl}))},null,2));
     fs.writeFileSync('mediasilo-network.log','Google Drive source adapter used; no MediaSilo network crawl.\n');
     console.log('PHASE4_ARTIFACT_VALIDATION_PASS');
     return;
