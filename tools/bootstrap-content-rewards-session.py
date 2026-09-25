@@ -10,20 +10,22 @@ import json
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
-OUT=Path("content-rewards-storage-state.json")\nB64=Path("content-rewards-storage-state.b64")
+OUT = Path("content-rewards-storage-state.json")
+B64 = Path("content-rewards-storage-state.b64")
 
 with sync_playwright() as p:
-    browser=p.chromium.launch(headless=False)
-    context=browser.new_context()
-    page=context.new_page()
-    page.goto("https://contentrewards.com/creators",wait_until="domcontentloaded")
+    browser = p.chromium.launch(headless=False)
+    context = browser.new_context()
+    page = context.new_page()
+    page.goto("https://contentrewards.com/creators", wait_until="domcontentloaded")
     print("Complete the normal Content Rewards login in the opened browser.")
     input("After you are fully logged in and can see the creator dashboard, press Enter here...")
-    state=context.storage_state()
-    OUT.write_text(json.dumps(state,indent=2),encoding="utf-8")
-    encoded=base64.b64encode(OUT.read_bytes()).decode()\nB64.write_text(encoded,encoding="ascii")
-    print("\nCreated:",OUT.resolve())
-    print("Base64 length:",len(encoded))
+    state = context.storage_state()
+    OUT.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    encoded = base64.b64encode(OUT.read_bytes()).decode()
+    B64.write_text(encoded, encoding="ascii")
+    print("\nCreated:", OUT.resolve())
+    print("Base64 length:", len(encoded))
     print("\nAdd the base64 value as the GitHub Actions repository secret:")
     print("CONTENT_REWARDS_STORAGE_STATE_B64")
     print("\nDo not commit or paste the secret value into chat.")
