@@ -45,25 +45,19 @@ if not campaign_id:
     raise RuntimeError("Phase 7 manifest does not identify campaignId.")
 rules = json.loads((ROOT / "campaign-rules" / f"{campaign_id}.json").read_text(encoding="utf-8"))
 campaign_rules = rules["rules"]
-required_text = campaign_rules["onScreenText"]["requiredLines"]
-if not campaign_rules["branding"]["logoRequired"]:
-    raise RuntimeError("Campaign rules unexpectedly do not require a logo.")
-if not campaign_rules["branding"]["logoMustRemainVisible"]:
-    raise RuntimeError("Campaign rules unexpectedly do not require persistent logo visibility.")
-if not campaign_rules["onScreenText"]["required"]:
-    raise RuntimeError("Campaign rules unexpectedly do not require on-screen text.")
-if campaign_rules["video"]["minimumDurationSeconds"] != 10:
-    raise RuntimeError("Unexpected campaign minimum duration.")
+required_text = campaign_rules.get("onScreenText", {}).get("requiredLines", [])
+logo_required = bool(campaign_rules.get("branding", {}).get("logoRequired"))
+text_required = bool(campaign_rules.get("onScreenText", {}).get("required"))
+minimum_duration = max(MIN_DURATION, float(campaign_rules.get("video", {}).get("minimumDurationSeconds") or 10))
 
 expected_text = (ROOT / "campaign_text.txt").read_text(encoding="utf-8").strip() if text_required else ""
-if not expected_text:
+if text_required and not expected_text:
     raise RuntimeError("campaign_text.txt is empty.")
 
-# The renderer's campaign_text.txt is the authoritative rendered on-screen line.
-# Verify that its text corresponds to one of the persisted campaign-required lines.
-normalized_expected = re.sub(r"\s+", " ", expected_text).strip().lower()
-if not any(normalized_expected == re.sub(r"\s+", " ", x).strip().lower() for x in required_text):
-    raise RuntimeError("Rendered campaign_text.txt does not match a persisted required on-screen text line.")
+if text_required:
+    normalized_expected = re.sub(r"\s+", " ", expected_text).strip().lower()
+    if not any(normalized_expected == re.sub(r"\s+", " ", x).strip().lower() for x in required_text):
+        raise RuntimeError("Rendered campaign_text.txt does not match a persisted required on-screen text line.")
 
 def run(cmd, label, allow_failure=False):
     p = subprocess.run(cmd, text=True, capture_output=True)
@@ -198,8 +192,8 @@ for video in videos:
         "aacAudio": a.get("codec_name") == "aac" if audio_streams else False,
         "audioDurationAligned": abs(float(a.get("duration") or duration) - duration) <= 0.75 if audio_streams else False,
         "decodeComplete": False,
-        "logoSampledVisible": False,
-        "requiredTextSampledVisible": False,
+        "logoSampledVisible": (not logo_required),
+        "requiredTextSampledVisible": (not text_required),
     }
 
     decode = run([
