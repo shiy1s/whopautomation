@@ -8,8 +8,13 @@ on:
         default: 'mediasilo'
         type: string
       source_url:
-        description: 'Verified content source URL'
+        description: 'Primary verified content source URL'
         required: true
+        type: string
+      source_urls:
+        description: 'Ranked verified content source URLs as JSON'
+        required: false
+        default: '[]'
         type: string
       campaign_id:
         description: 'Selected campaign ID'
@@ -42,6 +47,7 @@ jobs:
         env:
           INPUT_SOURCE_TYPE: ${{ inputs.source_type }}
           INPUT_SOURCE_URL: ${{ inputs.source_url }}
+          INPUT_SOURCE_URLS: ${{ inputs.source_urls }}
           INPUT_CAMPAIGN_ID: ${{ inputs.campaign_id }}
       - name: Validate Phase 4 artifact
         run: node -e "const fs=require('fs');const p='phase4-input/phase4-input-manifest.json';if(!fs.existsSync(p))throw new Error('Manifest missing');const m=JSON.parse(fs.readFileSync(p));if(m.complete!==true||m.videoAssetCount!==2||m.results.length!==2||m.results.some(x=>x.frameCount!==12)||m.frameCount!==24)throw new Error('Phase 4 manifest validation failed');if(m.sourceType!==process.env.SOURCE_TYPE||m.sourceUrl!==process.env.SOURCE_URL)throw new Error('Phase 4 source provenance mismatch');console.log('PHASE4_ARTIFACT_VALIDATION_PASS');"
