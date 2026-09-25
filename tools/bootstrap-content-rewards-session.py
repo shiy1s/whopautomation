@@ -21,9 +21,26 @@ with sync_playwright() as p:
     page.goto("https://contentrewards.com/creators", wait_until="domcontentloaded")
     print("Complete the normal Content Rewards login in the opened browser.")
     input("After you are fully logged in and can see the creator dashboard, press Enter here...")
-    if page.get_by_text("Sign in", exact=True).count() > 0:
+    # The current Content Rewards UI may keep a hidden/overlay "Sign in" element
+    # in the DOM even after authentication. Confirm the authenticated dashboard
+    # using visible navigation and/or the authenticated Whop app URL instead.
+    visible_sign_in = page.get_by_text("Sign in", exact=True).filter(visible=True).count()
+    dashboard_markers = (
+        page.get_by_text("Discover", exact=True).filter(visible=True).count()
+        + page.get_by_text("Campaigns", exact=True).filter(visible=True).count()
+        + page.get_by_text("Submissions", exact=True).filter(visible=True).count()
+        + page.get_by_text("Drafts", exact=True).filter(visible=True).count()
+    )
+    authenticated_url = "/app/" in page.url or "/app" in page.url
+
+    if dashboard_markers < 2 and not authenticated_url:
         browser.close()
-        raise RuntimeError("Browser is still showing Sign in; authenticated session was not confirmed")
+        raise RuntimeError(
+            "Authenticated session was not confirmed. "
+            f"URL={page.url!r}, visible_sign_in={visible_sign_in}, "
+            f"dashboard_markers={dashboard_markers}"
+        )
+
     state = context.storage_state()
     OUT.write_text(json.dumps(state, indent=2), encoding="utf-8")
     compressed = b"GZIP:" + gzip.compress(OUT.read_bytes(), compresslevel=9)
