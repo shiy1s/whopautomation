@@ -183,6 +183,7 @@ def main():
         "campaign": {
             "campaignId": rules["campaignId"],
             "campaignName": rules["campaignName"],
+            "assetSource": rules.get("rules", {}).get("assetSource", {}),
         },
         "planningPolicy": {
             "minimumDurationSeconds": MIN_DURATION,
