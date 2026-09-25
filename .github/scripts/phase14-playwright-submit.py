@@ -86,6 +86,8 @@ def campaign_url(cid):
 def process(page,item,dry):
     cid=item["campaignId"]; platform=item["platform"]; clip=item["clipFile"]; post=item["postUrl"]
     if platform not in {"youtube","instagram"}: die(f"Unsupported platform: {platform}")
+    allowed={str(x).lower() for x in item.get("campaignPlatforms",[])}
+    if platform not in allowed: die(f"Platform {platform} is not allowed by the selected campaign")
     age=(now()-parse_utc(item["publishedAtUtc"])).total_seconds()/60
     if age < -2 or age > MAX_AGE: raise RuntimeError(f"outside_submission_window:{age:.2f}")
     page.goto(campaign_url(cid),wait_until="domcontentloaded",timeout=45000); page.wait_for_timeout(1200)
