@@ -104,7 +104,7 @@ jobs:
           python .github/scripts/phase11-platform-publishing.py
           rc=$?
           if [ -n "${PHASE11_RELEASE_TAG:-}" ]; then
-            gh release delete "$PHASE11_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+            gh release delete "$PHASE11_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true || true
           fi
           exit "$rc"
 
