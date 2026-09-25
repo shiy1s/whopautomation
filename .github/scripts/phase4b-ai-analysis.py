@@ -75,7 +75,7 @@ def normalize_frame_analysis(item, expected):
 
     required = [
         "frameIndex", "timestampSeconds", "visualDescription",
-        "onScreenText", "entities", "context", "ricochetRelevance",
+        "onScreenText", "entities", "context", "campaignRelevance",
         "enforcementSignals", "safetyFlags", "language", "confidence"
     ]
     missing = [k for k in required if k not in item]
@@ -106,7 +106,7 @@ def normalize_frame_analysis(item, expected):
         if not isinstance(item[key], list):
             raise ValueError(f"{key} must be a list.")
 
-    relevance = float(item["ricochetRelevance"])
+    relevance = float(item["campaignRelevance"])
     confidence = float(item["confidence"])
     if not 0 <= relevance <= 1 or not 0 <= confidence <= 1:
         raise ValueError("Scores must be between 0 and 1.")
@@ -118,6 +118,7 @@ def normalize_frame_analysis(item, expected):
         "onScreenText": item["onScreenText"].strip(),
         "entities": [str(x) for x in item["entities"]],
         "context": item["context"].strip(),
+        "campaignRelevance": relevance,
         "ricochetRelevance": relevance,
         "enforcementSignals": [str(x) for x in item["enforcementSignals"]],
         "safetyFlags": [str(x) for x in item["safetyFlags"]],
@@ -148,7 +149,7 @@ IMPORTANT:
 - Read visible on-screen text only when actually legible; otherwise use an empty string.
 - Identify visible people, objects, settings, documents, logos, bodycam-like footage,
   gameplay, legal-notice/enforcement cues, and other concrete visual evidence.
-- "RICOCHET relevance" means visible relevance to the campaign topic, not a guess about
+- "campaign relevance" means visible relevance to the campaign topic, not a guess about
   hidden context.
 - Safety flags must be based on visible content only.
 - Return exactly one analysis object for every supplied frame, preserving frame order.
@@ -248,7 +249,7 @@ There must be exactly {len(frame_records)} frame objects, one per supplied frame
 
 def main():
     manifest_path = Path("phase4-input/phase4-input-manifest.json")
-    rules_path = Path("campaign-rules/07c3822c-53e1-4420-b650-01b088b9852c.json")
+    campaign_id = str(manifest.get("campaignId") or "").strip()\n    if not campaign_id:\n        campaign_id = str(manifest.get("campaignRules", {}).get("campaignId") or "").strip()\n    rules_path = Path("campaign-rules") / f"{campaign_id}.json"
     output_dir = Path("phase4-analysis")
 
     if not manifest_path.is_file():
