@@ -50,20 +50,16 @@ def validate_phase4b(manifest, assets):
         if not isinstance(frames, list) or len(frames) != 12:
             raise ValueError(f"Asset {aid} must contain 12 analyses.")
         for f in frames:
-            for k in ("frameIndex", "timestampSeconds", "visualDescription",
-                      "enforcementSignals", "safetyFlags"):
-                if k not in f and not ("campaignRelevance" in f or "ricochetRelevance" in f):
-                    raise ValueError(f"Missing relevance score in {aid} frame {f.get("frameIndex")}.")
-                continue
+            for k in ("frameIndex", "timestampSeconds", "visualDescription", "enforcementSignals", "safetyFlags"):
                 if k not in f:
                     raise ValueError(f"Missing {k} in {aid} frame {f.get('frameIndex')}.")
-            if not 0 <= float(f["ricochetRelevance"]) <= 1:
-                raise ValueError("Invalid relevance score.")
+            relevance = f.get("campaignRelevance", f.get("ricochetRelevance"))
+            if relevance is None or not 0 <= float(relevance) <= 1:
+                raise ValueError("Invalid campaign relevance score.")
             if not isinstance(f["enforcementSignals"], list):
                 raise ValueError("enforcementSignals must be a list.")
             if not isinstance(f["safetyFlags"], list):
                 raise ValueError("safetyFlags must be a list.")
-
 
 def make_candidate(asset, frames, start_i, end_i, candidate_no):
     first = frames[start_i]
