@@ -89,21 +89,23 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
     fs.mkdirSync(outDir,{recursive:true});
     fs.mkdirSync(tmpDir,{recursive:true});
 
-    let listing;
+    const isFolder=/drive\.google\.com\/drive\/folders\//i.test(sourceUrl);
     try {
-      listing=JSON.parse(cp.execFileSync('gdown',[sourceUrl,'--json','--quiet'],{encoding:'utf8',maxBuffer:20*1024*1024}));
-    } catch(e) {
-      throw new Error('GOOGLE_DRIVE_LIST_FAILED: '+(e.stderr?String(e.stderr):e.message));
+      if(isFolder) cp.execFileSync('gdown',['--folder','--continue','--retries','3',sourceUrl,'-O',tmpDir],{stdio:'inherit'});
+      else cp.execFileSync('gdown',['--continue','--retries','3',sourceUrl,'-O',path.join(tmpDir,'drive_source.mp4')],{stdio:'inherit'});
+    } catch(err) {
+      throw new Error('GOOGLE_DRIVE_DOWNLOAD_FAILED: '+(err.stderr?String(err.stderr):err.message));
     }
-    const entries=(Array.isArray(listing)?listing:[]).filter(x=>x&&x.url&&/\.(mp4|mov|m4v|webm|mkv)$/i.test(String(x.path||'')));
+    const walk=(dir)=>{
+      const out=[];
+      for(const ent of fs.readdirSync(dir,{withFileTypes:true})){
+        const p=path.join(dir,ent.name);
+        if(ent.isDirectory()) out.push(...walk(p)); else out.push(p);
+      }
+      return out;
+    };
+    const entries=walk(tmpDir).filter(p=>/\.(mp4|mov|m4v|webm|mkv)$/i.test(p)).sort((a,b)=>a.localeCompare(b));
     if(entries.length<2) throw new Error('GOOGLE_DRIVE_SOURCE_INSUFFICIENT_VIDEO: '+entries.length+' video files found.');
-    const plans=Array.isArray(phase6.clipPlans)?phase6.clipPlans:[];
-    const selected=plans.map(p=>entries.find(e=>path.basename(String(e.path))===path.basename(String(p.fileName)))||entries.find(e=>String(e.path).toLowerCase().includes(String(p.fileName).toLowerCase()))).filter(Boolean);
-    const finalEntries=[];
-    for(const e of selected){if(!finalEntries.some(x=>x.url===e.url))finalEntries.push(e);}
-    for(const e of entries){if(finalEntries.length>=2)break;if(!finalEntries.some(x=>x.url===e.url))finalEntries.push(e);}
-    if(finalEntries.length!==2) throw new Error('Could not deterministically resolve two Google Drive source files.');
-
     const assets=[];
     for(let i=0;i<2;i++){
       const e=finalEntries[i];
