@@ -6,6 +6,7 @@ REPO=os.environ["GITHUB_REPOSITORY"]; RUN_ID=os.environ["PHASE11_RUN_ID"].strip(
 CAMPAIGN_ID=os.environ["CAMPAIGN_ID"].strip(); CAMPAIGN_NAME=os.environ["CAMPAIGN_NAME"].strip()
 CAMPAIGN_STATUS=os.environ.get("CAMPAIGN_STATUS","unknown").strip().lower()
 CONFIRM=os.environ.get("CONFIRM_SUBMISSION","").strip(); MAX_AGE=int(os.environ.get("MAX_AGE_MINUTES","30"))
+CAMPAIGN_PLATFORMS={p.strip().lower() for p in os.environ.get("CAMPAIGN_PLATFORMS","").split(",") if p.strip()}
 PLATFORMS={"youtube","instagram"}
 LEDGER_PATH="state/phase11-publication-ledger.json"; SUBMISSION_PATH="state/phase14-content-rewards-submissions.json"
 YOUTUBE_RE=re.compile(r"^https://(?:www\.)?youtube\.com/shorts/([A-Za-z0-9_-]+)(?:\?.*)?$")
@@ -35,6 +36,7 @@ def validate_inputs():
     if CAMPAIGN_STATUS!="active": die("Submission gate is locked: CAMPAIGN_STATUS must be active")
     if not 1<=MAX_AGE<=30: die("MAX_AGE_MINUTES must be between 1 and 30")
     if CONFIRM!="SUBMIT_READY": die("Submission gate is locked: set CONFIRM_SUBMISSION=SUBMIT_READY")
+    if not CAMPAIGN_PLATFORMS or not CAMPAIGN_PLATFORMS.issubset({"youtube","instagram","tiktok"}): die("CAMPAIGN_PLATFORMS must contain at least one supported campaign platform")
 
 def publication_url(platform,remote):
     if platform=="youtube":
@@ -60,6 +62,8 @@ def main():
     ledger,_=read_json(LEDGER_PATH)
     pubs=[p for p in ledger.get("publications",[]) if p.get("phase11RunId")==int(RUN_ID) and p.get("status")=="published" and p.get("platform") in PLATFORMS and p.get("videoSha256")]
     if not pubs: die(f"No eligible YouTube/Instagram publications exist for Phase 11 run {RUN_ID}")
+    pubs=[p for p in pubs if p.get("platform") in CAMPAIGN_PLATFORMS]
+    if not pubs: die("No published platform is allowed by the selected campaign platform set")
     try: state,state_sha=read_json(SUBMISSION_PATH)
     except RuntimeError as e:
         if "HTTP 404" not in str(e): raise
@@ -74,7 +78,7 @@ def main():
         url=publication_url(platform,p.get("remote",{})); validate_url(platform,url,p.get("remote",{}))
         dup=any(x.get("campaignId")==CAMPAIGN_ID and x.get("platform")==platform and x.get("clipFile")==clip and x.get("postUrl")==url and x.get("status") in {"prepared","queued","submitted","approved","pending","rejected"} for x in existing)
         if dup: skipped.append({"platform":platform,"clipFile":clip,"postUrl":url,"reason":"duplicate"}); continue
-        rec={"schemaVersion":2,"status":"queued","campaignId":CAMPAIGN_ID,"campaignName":CAMPAIGN_NAME,"platform":platform,"clipFile":clip,"postUrl":url,"publishedAtUtc":p["publishedAtUtc"],"preparedAtUtc":now().strftime("%Y-%m-%dT%H:%M:%SZ"),"ageMinutesAtPreparation":round(age,2),"phase11RunId":int(RUN_ID),"videoSha256":p["videoSha256"],"remote":p.get("remote",{}),"contentRewardsSubmission":{"automation":"playwright-worker","status":"queued","reason":"Deterministic validation passed; authorized browser worker may submit this exact public URL."}}
+        rec={"schemaVersion":2,"status":"queued","campaignId":CAMPAIGN_ID,"campaignName":CAMPAIGN_NAME,"campaignPlatforms":sorted(CAMPAIGN_PLATFORMS),"platform":platform,"clipFile":clip,"postUrl":url,"publishedAtUtc":p["publishedAtUtc"],"preparedAtUtc":now().strftime("%Y-%m-%dT%H:%M:%SZ"),"ageMinutesAtPreparation":round(age,2),"phase11RunId":int(RUN_ID),"videoSha256":p["videoSha256"],"remote":p.get("remote",{}),"contentRewardsSubmission":{"automation":"playwright-worker","status":"queued","reason":"Deterministic validation passed; authorized browser worker may submit this exact public URL."}}
         existing.append(rec); prepared.append(rec)
     state["schemaVersion"]=2; state["submissions"]=existing
     if prepared or state_sha is None:
@@ -83,7 +87,7 @@ def main():
             body={"message":f"Initialize Content Rewards submission ledger for Phase 11 run {RUN_ID}","content":base64.b64encode((json.dumps(state,indent=2,sort_keys=True)+"\n").encode()).decode()}
             ledger_sha=gh_api("contents/"+urllib.parse.quote(SUBMISSION_PATH),"PUT",body)["content"]["sha"]
     else: ledger_sha=None
-    print(json.dumps({"phase14":"submission_queue_prepared","status":"queued" if prepared else "nothing_new","campaignId":CAMPAIGN_ID,"campaignName":CAMPAIGN_NAME,"phase11RunId":int(RUN_ID),"preparedCount":len(prepared),"skippedCount":len(skipped),"prepared":prepared,"skipped":skipped,"ledger":SUBMISSION_PATH,"ledgerBlobSha":ledger_sha},indent=2))
+    print(json.dumps({"phase14":"submission_queue_prepared","status":"queued" if prepared else "nothing_new","campaignId":CAMPAIGN_ID,"campaignName":CAMPAIGN_NAME,"campaignPlatforms":sorted(CAMPAIGN_PLATFORMS),"phase11RunId":int(RUN_ID),"preparedCount":len(prepared),"skippedCount":len(skipped),"prepared":prepared,"skipped":skipped,"ledger":SUBMISSION_PATH,"ledgerBlobSha":ledger_sha},indent=2))
 
 if __name__=="__main__":
     try: main()

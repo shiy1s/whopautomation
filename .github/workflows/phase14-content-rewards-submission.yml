@@ -15,6 +15,10 @@ on:
         description: "Exact selected campaign name"
         required: true
         type: string
+      campaign_platforms:
+        description: "Comma-separated payout platforms allowed by the selected campaign, e.g. youtube,instagram"
+        required: true
+        type: string
       campaign_status:
         description: "Current selected campaign status"
         required: true
@@ -50,6 +54,7 @@ jobs:
       CAMPAIGN_ID: ${{ inputs.campaign_id }}
       CAMPAIGN_NAME: ${{ inputs.campaign_name }}
       CAMPAIGN_STATUS: ${{ inputs.campaign_status }}
+      CAMPAIGN_PLATFORMS: ${{ inputs.campaign_platforms }}
       CONFIRM_SUBMISSION: ${{ inputs.confirm_submission }}
       MAX_AGE_MINUTES: ${{ inputs.max_age_minutes }}
     steps:
