@@ -48,3 +48,11 @@ The worker does not assume two clips or two platforms. Examples:
 ## Failure policy
 
 A click whose result cannot be verified is not automatically retried. It becomes needs_manual_verification. This is deliberate: an ambiguous post-click state could mean the submission succeeded, and blind retrying could duplicate the submission.
+
+## One-time session provisioning
+
+Run tools/bootstrap-content-rewards-session.py on a trusted machine. It opens a normal visible browser and requires the user to complete the normal login themselves; it does not automate credentials or MFA. It writes two local files that are ignored by Git: content-rewards-storage-state.json and content-rewards-storage-state.b64.
+
+Copy the contents of the .b64 file into the GitHub Actions repository secret CONTENT_REWARDS_STORAGE_STATE_B64. Do not put the session state in source control or chat. GitHub Actions secrets can be created through GitHub's encrypted repository-secret mechanism.
+
+If the session expires, re-run the bootstrap and rotate the repository secret. The worker never attempts to bypass login, CAPTCHA, MFA, rate limits, or other security controls.
