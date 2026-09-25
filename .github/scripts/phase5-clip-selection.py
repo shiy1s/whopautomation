@@ -51,7 +51,10 @@ def validate_phase4b(manifest, assets):
             raise ValueError(f"Asset {aid} must contain 12 analyses.")
         for f in frames:
             for k in ("frameIndex", "timestampSeconds", "visualDescription",
-                      "ricochetRelevance", "enforcementSignals", "safetyFlags"):
+                      "enforcementSignals", "safetyFlags"):
+                if k not in f and not ("campaignRelevance" in f or "ricochetRelevance" in f):
+                    raise ValueError(f"Missing relevance score in {aid} frame {f.get("frameIndex")}.")
+                continue
                 if k not in f:
                     raise ValueError(f"Missing {k} in {aid} frame {f.get('frameIndex')}.")
             if not 0 <= float(f["ricochetRelevance"]) <= 1:
@@ -80,7 +83,7 @@ def make_candidate(asset, frames, start_i, end_i, candidate_no):
                 start = max(0.0, end - MIN_DURATION)
 
     evidence = frames[start_i:end_i + 1]
-    relevance = sum(float(x["ricochetRelevance"]) for x in evidence) / len(evidence)
+    relevance = sum(float(x.get("campaignRelevance", x.get("ricochetRelevance", 0))) for x in evidence) / len(evidence)
     signals = []
     for x in evidence:
         for s in x["enforcementSignals"]:
@@ -108,7 +111,7 @@ def make_candidate(asset, frames, start_i, end_i, candidate_no):
 
 def generate_candidates(asset):
     frames = asset["frames"]
-    qualifying = [float(f["ricochetRelevance"]) >= MIN_RELEVANCE for f in frames]
+    qualifying = [float(f.get("campaignRelevance", f.get("ricochetRelevance", 0))) >= MIN_RELEVANCE for f in frames]
     runs = []
     i = 0
     while i < len(frames):
@@ -129,7 +132,7 @@ def generate_candidates(asset):
     # Always preserve an evidence-backed candidate for the strongest frame if clustering
     # produced no usable result. This is deterministic and still requires AI selection.
     if not candidates:
-        strongest = max(range(len(frames)), key=lambda k: float(frames[k]["ricochetRelevance"]))
+        strongest = max(range(len(frames)), key=lambda k: float(frames[k].get("campaignRelevance", frames[k].get("ricochetRelevance", 0))))
         candidates.append(make_candidate(asset, frames, strongest, strongest, 1))
 
     # Deduplicate exact windows.
@@ -170,7 +173,7 @@ invent audio/dialogue.
 
 Selection requirements:
 - Use only evidence present in the candidate data.
-- Prefer a coherent sequence showing actual RICOCHET enforcement/legal-service context.
+- Prefer a coherent sequence showing the actual campaign topic and required content context.
 - Prefer candidates with multiple consecutive evidence frames over isolated evidence.
 - Respect the minimum 10-second video requirement.
 - Reject candidates with safetyFlags indicating prohibited campaign content.
@@ -228,7 +231,7 @@ def main():
 
     validate_phase4b(manifest, assets)
 
-    rules = load("campaign-rules/07c3822c-53e1-4420-b650-01b088b9852c.json")
+    campaign_id = str(manifest.get("campaignRules", {}).get("campaignId") or "").strip()\n    if not campaign_id:\n        campaign_id = str(manifest.get("campaign", {}).get("campaignId") or "").strip()\n    if not campaign_id:\n        raise RuntimeError("Phase 4B manifest does not identify campaignId.")\n    rules = load(str(Path("campaign-rules") / f"{campaign_id}.json"))
     client = genai.Client(api_key=require_key())
 
     selections = []
