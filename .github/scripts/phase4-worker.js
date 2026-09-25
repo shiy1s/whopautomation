@@ -101,7 +101,7 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
       }
       return out;
     };
-    const files=walk(tmpDir).filter(p=>/\\.(mp4|mov|m4v|webm|mkv)$/i.test(p)).sort();
+    const files=walk(tmpDir).filter(p=>/\.(mp4|mov|m4v|webm|mkv)$/i.test(p)).sort();
     if(files.length<2) throw new Error('GOOGLE_DRIVE_SOURCE_INSUFFICIENT_VIDEO: found '+files.length+' video files.');
     const selected=files.slice(0,2);
     const results=[];
