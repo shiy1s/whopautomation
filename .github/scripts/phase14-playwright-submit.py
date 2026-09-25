@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, base64, json, os, re, sys
+import argparse, base64, gzip, json, os, re, sys
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError
@@ -35,8 +35,13 @@ def write_queue(state,sha,message):
 def storage_state():
     raw=os.environ.get("CONTENT_REWARDS_STORAGE_STATE_B64","").strip()
     if not raw: die("CONTENT_REWARDS_STORAGE_STATE_B64 is not configured")
-    try: s=json.loads(base64.b64decode(raw).decode())
-    except Exception as e: die(f"Invalid CONTENT_REWARDS_STORAGE_STATE_B64: {e}")
+    try:
+        data=base64.b64decode(raw)
+        if data.startswith(b"GZIP:"):
+            data=gzip.decompress(data[5:])
+        s=json.loads(data.decode())
+    except Exception as e:
+        die(f"Invalid CONTENT_REWARDS_STORAGE_STATE_B64: {e}")
     if not isinstance(s,dict) or "cookies" not in s: die("Storage state is not a Playwright storageState object")
     return s
 
