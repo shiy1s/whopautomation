@@ -226,27 +226,30 @@ for video in videos:
         extract_frame(video, ts, fp)
         frame_paths.append(fp)
 
-    reference = Image.open(frame_paths[0])
-    logo_coverages = []
-    text_coverages = []
-    for fp in frame_paths:
-        img = Image.open(fp)
-        logo_coverages.append(overlay_coverage(reference, img, ROI_LOGO))
-        text_coverages.append(overlay_coverage(reference, img, ROI_TEXT))
-
-    min_logo = min(logo_coverages)
-    min_text = min(text_coverages)
     evidence_indices = {0, len(frame_paths) // 2, len(frame_paths) - 1}
+    if logo_required or text_required:
+        reference = Image.open(frame_paths[0])
+        logo_coverages = []
+        text_coverages = []
+        for fp in frame_paths:
+            img = Image.open(fp)
+            if logo_required:
+                logo_coverages.append(overlay_coverage(reference, img, ROI_LOGO))
+            if text_required:
+                text_coverages.append(overlay_coverage(reference, img, ROI_TEXT))
+        if logo_required:
+            min_logo = min(logo_coverages)
+            checks["logoSampledVisible"] = min_logo >= OVERLAY_THRESHOLD
+            if not checks["logoSampledVisible"]:
+                fatal_errors.append(f"{name}: required logo failed sampled-frame visibility check (min coverage {min_logo:.3f}).")
+        if text_required:
+            min_text = min(text_coverages)
+            checks["requiredTextSampledVisible"] = min_text >= OVERLAY_THRESHOLD
+            if not checks["requiredTextSampledVisible"]:
+                fatal_errors.append(f"{name}: required on-screen text failed sampled-frame visibility check (min coverage {min_text:.3f}).")
     for idx, fp in enumerate(frame_paths):
         if idx not in evidence_indices:
             fp.unlink(missing_ok=True)
-    checks["logoSampledVisible"] = min_logo >= OVERLAY_THRESHOLD
-    checks["requiredTextSampledVisible"] = min_text >= OVERLAY_THRESHOLD
-
-    if not checks["logoSampledVisible"]:
-        fatal_errors.append(f"{name}: persistent Call of Duty logo failed sampled-frame visibility check (min coverage {min_logo:.3f}).")
-    if not checks["requiredTextSampledVisible"]:
-        fatal_errors.append(f"{name}: required on-screen text failed sampled-frame visibility check (min coverage {min_text:.3f}).")
 
     anomalies = detect_black_and_freeze(video)
     audio = detect_audio(video)
