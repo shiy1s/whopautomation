@@ -167,7 +167,17 @@ def instagram(c):
  else: die("Instagram Login container timed out")
  q=urllib.parse.urlencode({"creation_id":cid,"access_token":tok}); d=http_json(f"https://graph.instagram.com/{v}/{ig}/media_publish?{q}","POST")
  if not d.get("id"): die("Instagram Login publish returned no media id")
- return {"mediaId":d["id"],"containerId":cid}
+ media_id=d["id"]
+ permalink=None
+ try:
+  q=urllib.parse.urlencode({"fields":"permalink","access_token":tok})
+  info=http_json(f"https://graph.instagram.com/{v}/{media_id}?{q}")
+  permalink=info.get("permalink")
+ except Exception:
+  permalink=None
+ if not permalink:
+  die("Instagram Login publish succeeded but permalink could not be verified; refusing to record an incomplete publication")
+ return {"mediaId":media_id,"containerId":cid,"permalink":permalink}
 def main():
  m=manifest()
  req={"youtube":["YOUTUBE_CLIENT_ID","YOUTUBE_CLIENT_SECRET","YOUTUBE_REFRESH_TOKEN"],"tiktok":["TIKTOK_CLIENT_KEY","TIKTOK_CLIENT_SECRET","TIKTOK_REFRESH_TOKEN"],"instagram":["INSTAGRAM_ACCESS_TOKEN","INSTAGRAM_USER_ID"]}
