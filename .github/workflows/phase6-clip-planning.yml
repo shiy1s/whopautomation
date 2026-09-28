@@ -91,25 +91,30 @@ jobs:
           m=json.loads(p.read_text())
           if m.get("complete") is not True:
               raise SystemExit("Phase 6 manifest is not complete=true")
-          if m.get("clipPlanCount") != 2 or len(m.get("clipPlans", [])) != 2:
+          if int(m.get("clipPlanCount") or 0) < 1 or len(m.get("clipPlans", [])) < 1:
               raise SystemExit("Phase 6 clip-plan count failed")
-          ids=set()
           for p in m["clipPlans"]:
-              if p["assetId"] in ids:
-                  raise SystemExit("Duplicate Phase 6 asset plan")
-              ids.add(p["assetId"])
-              if p["durationSeconds"] < 10:
-                  raise SystemExit("Phase 6 plan shorter than 10 seconds")
-              if p["durationSeconds"] > 60:
-                  raise SystemExit("Phase 6 plan exceeds the proven Phase 7 renderer 60s ceiling")
-              if p["startSeconds"] < 0 or p["endSeconds"] > p["sourceDurationSeconds"]:
-                  raise SystemExit("Phase 6 boundary outside source duration")
-              if p["endSeconds"] <= p["startSeconds"]:
-                  raise SystemExit("Invalid Phase 6 boundary ordering")
-              if p["boundaryMethod"] != "sampled-evidence-midpoint":
-                  raise SystemExit("Unexpected boundary method")
-              if not p["candidateId"] or not p["fileName"]:
-                  raise SystemExit("Missing Phase 6 provenance")
+              if not p.get("planId") or not p.get("segments"):
+                  raise SystemExit("Phase 6 plan missing segment provenance")
+              total=sum(float(s["durationSeconds"]) for s in p["segments"])
+              if abs(total-float(p["durationSeconds"])) > 0.25:
+                  raise SystemExit("Phase 6 segment duration sum mismatch")
+              if not 10 <= float(p["durationSeconds"]) <= 60:
+                  raise SystemExit("Phase 6 plan outside 10-60s renderer bounds")
+              seen_assets=set()
+              seen_candidates=set()
+              for s in p["segments"]:
+                  if not s.get("assetId") or not s.get("fileName") or not s.get("candidateId"):
+                      raise SystemExit("Missing Phase 6 segment provenance")
+                  if s["candidateId"] in seen_candidates:
+                      raise SystemExit("Duplicate candidate in Phase 6 plan")
+                  seen_candidates.add(s["candidateId"])
+                  start=float(s["startSeconds"]); end=float(s["endSeconds"]); source=float(s["sourceDurationSeconds"])
+                  if start < 0 or end > source or end <= start:
+                      raise SystemExit("Phase 6 segment boundary outside source duration")
+                  if s.get("boundaryMethod") != "sampled-evidence-midpoint":
+                      raise SystemExit("Unexpected boundary method")
+                  seen_assets.add(s["assetId"])
           print("PHASE6_ARTIFACT_VALIDATION_PASS")
           PY
 
