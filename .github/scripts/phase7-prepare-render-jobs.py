@@ -5,10 +5,10 @@ from pathlib import Path
 MIN_DURATION = 10.0
 MAX_DURATION = 60.0
 
-plan = json.loads(Path("phase6-source/render-plan.json").read_text(encoding="utf-8"))
-plans = plan.get("clipPlans", [])
-if len(plans) != 2:
-    raise RuntimeError("Expected exactly two Phase 6 clip plans.")
+plan_doc = json.loads(Path("phase6-source/render-plan.json").read_text(encoding="utf-8"))
+plans = plan_doc.get("clipPlans", [])
+if not plans:
+    raise RuntimeError("No Phase 6 clip plans found.")
 
 logo = Path("Call_of_Duty_Wordmark_Stacked_CMYK_White.png")
 campaign_text = Path("campaign_text.txt")
@@ -20,6 +20,7 @@ if root.exists():
     shutil.rmtree(root)
 root.mkdir()
 
+
 def stamp(seconds):
     seconds = float(seconds)
     h = int(seconds // 3600)
@@ -27,47 +28,64 @@ def stamp(seconds):
     s = seconds - h * 3600 - m * 60
     return f"{h:02d}:{m:02d}:{s:06.3f}"
 
+
 for rank, p in enumerate(plans, 1):
-    start = float(p["startSeconds"])
-    end = float(p["endSeconds"])
-    duration = end - start
+    segments = p.get("segments", [])
+    if not segments:
+        raise RuntimeError(f"Plan {p.get('planId')} has no segments.")
+
+    duration = sum(float(s["endSeconds"]) - float(s["startSeconds"]) for s in segments)
     if not MIN_DURATION <= duration <= MAX_DURATION:
         raise RuntimeError(f"Renderer-incompatible plan {p['planId']}: {duration}s")
-    source = Path("sources") / f"{p['assetId']}.mp4"
-    if not source.is_file() or source.stat().st_size < 100000:
-        raise RuntimeError(f"Missing real source media for {p['assetId']}")
 
     job = root / f"{rank:02d}"
     job.mkdir()
     (job / "work").mkdir()
     (job / "caption_files").mkdir()
     (job / "output").mkdir()
-    shutil.copy2(source, job / "source.mp4")
-    shutil.copy2(logo, job / logo.name)
-    shutil.copy2(campaign_text, job / campaign_text.name)
+
+    source_names = {}
+    clip_segments = []
+    for seg_index, s in enumerate(segments, 1):
+        aid = str(s["assetId"])
+        source = Path("sources") / f"{aid}.mp4"
+        if not source.is_file() or source.stat().st_size < 100000:
+            raise RuntimeError(f"Missing real source media for {aid} used by {p['planId']}")
+
+        if aid not in source_names:
+            safe_name = f"source_{len(source_names)+1:02d}.mp4"
+            shutil.copy2(source, job / safe_name)
+            source_names[aid] = safe_name
+
+        clip_segments.append({
+            "source": source_names[aid],
+            "assetId": aid,
+            "start": stamp(float(s["startSeconds"])),
+            "end": stamp(float(s["endSeconds"])),
+            "purpose": str(s.get("role") or "Phase 6 evidence-bounded segment"),
+            "has_burned_in_captions": False,
+        })
 
     clip = {
         "rank": 1,
-        "assetId": p["assetId"],
-        "segments": [{
-            "start": stamp(start),
-            "end": stamp(end),
-            "purpose": "Phase 6 evidence-bounded clip plan",
-            "has_burned_in_captions": True
-        }],
+        "planId": p["planId"],
+        "assetIds": list(source_names.keys()),
+        "segments": clip_segments,
         "duration_seconds": round(duration, 3),
-        "title": f"RICOCHET Enforcement — {p['fileName']}",
-        "hook": "Real RICOCHET enforcement footage.",
-        "reason": "Phase 5 selection with Phase 6 evidence-bounded boundaries.",
-        "score": 100
+        "title": f"Campaign Short — Clip {rank}",
+        "hook": "Evidence-backed campaign footage.",
+        "reason": str(p.get("rationale") or "Phase 5 opportunity-driven selection."),
+        "score": round(float(p.get("confidence", 0)) * 100, 2),
     }
+    (job / logo.name).write_bytes(logo.read_bytes())
+    (job / campaign_text.name).write_bytes(campaign_text.read_bytes())
     (job / "clips.json").write_text(json.dumps({
-        "source_duration_seconds": float(p["sourceDurationSeconds"]),
+        "source_duration_seconds": None,
         "top_moments": [],
         "captions": [],
-        "clips": [clip]
+        "clips": [clip],
     }, indent=2, ensure_ascii=False), encoding="utf-8")
 
 print("PHASE7_RENDER_JOB_INPUTS_PASS")
 for rank, p in enumerate(plans, 1):
-    print(f"job={rank:02d} asset={p['assetId']} start={p['startSeconds']} end={p['endSeconds']} duration={p['durationSeconds']}")
+    print(f"job={rank:02d} plan={p['planId']} segments={len(p.get('segments', []))} duration={p['durationSeconds']}")
