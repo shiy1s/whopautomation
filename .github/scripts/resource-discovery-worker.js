@@ -14,7 +14,7 @@ function classify(url) {
   if (l.includes('drive.google.com/file/')) return { type:'GoogleDriveFile', role:'media_source' };
   if (l.includes('docs.google.com/document/')) return { type:'GoogleDocs', role:'instruction' };
   if (l.includes('docs.google.com/spreadsheets/')) return { type:'GoogleSheets', role:'asset_index' };
-  if (l.includes('dropbox.com/')) return { type:'Dropbox', role:'media_source' };
+  if (l.includes('dropbox.com/')) return { type:'Dropbox', role:'media_source' };\n  if (l.includes('we.tl/') || l.includes('wetransfer.com/')) return { type:'WeTransfer', role:'media_source' };
   if (l.includes('notion.so/') || l.includes('notion.site/') || l.includes('app.notion.com/')) return { type:'Notion', role:'instruction' };
   if (l.includes('discord.com/') || l.includes('discord.gg/')) return { type:'Discord', role:'application' };
   if (l.includes('tally.so/')) return { type:'Tally', role:'application' };
@@ -217,7 +217,7 @@ async function writeResult(campaignId, result) {
     resources.push(resource);
 
     const shouldFetch = current.depth < MAX_DEPTH && (
-      ['Notion','GoogleDocs','GoogleSheets','Website','Dropbox','Loom','LinkInBio','Discord','Tally','NextFrame'].includes(meta.type)
+      ['Notion','GoogleDocs','GoogleSheets','Website','Dropbox','WeTransfer','Loom','LinkInBio','Discord','Tally','NextFrame'].includes(meta.type)
     );
     if (!shouldFetch) continue;
 
