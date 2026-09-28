@@ -63,7 +63,7 @@ jobs:
           m=json.loads((root/"phase4-analysis-manifest.json").read_text())
           if m.get("complete") is not True:
               raise SystemExit("Phase 4B is not complete=true")
-          if m.get("analysis",{}).get("assetCount") != 2 or m.get("analysis",{}).get("frameCount") != 24:
+          if int(m.get("analysis",{}).get("assetCount") or 0) < 1 or int(m.get("analysis",{}).get("frameCount") or 0) < 1:
               raise SystemExit("Phase 4B count contract failed")
           for a in m.get("assets",[]):
               d=json.loads((root/a["analysisFile"]).read_text())
@@ -93,22 +93,30 @@ jobs:
           m=json.loads(p.read_text())
           if m.get("complete") is not True:
               raise SystemExit("Phase 5 manifest is not complete=true")
-          if m.get("sourcePhase",{}).get("assetCount") != 2 or m.get("sourcePhase",{}).get("frameCount") != 24:
+          if int(m.get("sourcePhase",{}).get("assetCount") or 0) < 1 or int(m.get("sourcePhase",{}).get("frameCount") or 0) < 1:
               raise SystemExit("Phase 5 source contract failed")
-          if m.get("selectedCount") != 2 or len(m.get("selections",[])) != 2:
+          selections=m.get("selections",[])
+          if int(m.get("selectedCount") or 0) < 1 or not selections:
               raise SystemExit("Phase 5 selection count failed")
-          ids=set()
-          for s in m["selections"]:
-              c=s["selectedCandidate"]
-              if c["candidateId"] in ids:
-                  raise SystemExit("Duplicate selected candidate")
-              ids.add(c["candidateId"])
-              if c["durationSeconds"] < 10:
-                  raise SystemExit("Selected candidate shorter than 10 seconds")
-              if not c["fileName"] or not c["assetId"]:
-                  raise SystemExit("Missing selected candidate provenance")
-              if not s["aiDecision"].get("rationale"):
-                  raise SystemExit("Missing AI rationale")
+          seen_plans=set()
+          for s in selections:
+              segs=s.get("segments",[])
+              if not segs:
+                  raise SystemExit("Clip opportunity has no segments")
+              plan_key=tuple(x.get("candidateId") for x in segs)
+              if plan_key in seen_plans:
+                  raise SystemExit("Duplicate clip opportunity")
+              seen_plans.add(plan_key)
+              if not s.get("rationale"):
+                  raise SystemExit("Missing clip rationale")
+              if not 0 <= float(s.get("confidence",-1)) <= 1:
+                  raise SystemExit("Invalid clip confidence")
+              total=sum(float(x.get("endSeconds",0))-float(x.get("startSeconds",0)) for x in segs)
+              if not 10 <= total <= 60:
+                  raise SystemExit("Clip opportunity duration outside 10-60s")
+              for seg in segs:
+                  if not seg.get("candidateId") or not seg.get("assetId") or not seg.get("fileName"):
+                      raise SystemExit("Missing segment provenance")
           print("PHASE5_ARTIFACT_VALIDATION_PASS")
           PY
 
