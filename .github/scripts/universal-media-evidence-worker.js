@@ -214,7 +214,7 @@ async function collectSource(type,url,tmp){
         await download(c.url,p);
         if(probe(p).valid){
           out.push({file:p,sourceUrl:url});
-          if(out.length>=2) break;
+          if(out.length>=1000) break;
         }
         fs.unlinkSync(p);
       }catch{if(fs.existsSync(p))fs.unlinkSync(p);}
@@ -240,7 +240,7 @@ async function collectSource(type,url,tmp){
         console.warn('browser fallback candidate failed:',c.url,e.message);
         if(fs.existsSync(path.join(tmp,'browser_fallback_'+Date.now()+'_'+out.length+'.bin')))fs.unlinkSync(path.join(tmp,'browser_fallback_'+Date.now()+'_'+out.length+'.bin'));
       }
-      if(out.length>=2)break;
+      if(out.length>=1000)break;
     }
     return out;
   }
@@ -253,4 +253,18 @@ if(!discovered.length&&adapterType!=='BrowserFallback'){
   console.warn('Primary adapter produced no media; invoking Chromium/Playwright fallback:',s.type,s.url);
   try{discovered=await collectSource('BrowserFallback',s.url,'.tmp-media');}catch(fallbackError){console.warn('Chromium/Playwright fallback failed:',s.url,fallbackError.message);}
 }
-const typedDiscovered=discovered.map(x=>({...x,sourceType:x.sourceAdapter||s.type}));candidates.push(...typedDiscovered);if(String(s.type).toLowerCase()==='googledrive'&&!s.url.toLowerCase().includes('/drive/folders/')&&candidates.length===before)googleDriveBrowserFallbacks++;for(const candidate of discovered){const p=probe(candidate.file);if(p.valid)verified.push({...candidate,sourceType:candidate.sourceType||s.type,probe:p});if(verified.length>=2)break;}if(verified.length>=2)break;}catch(e){console.warn('source failed',s.type,s.url,e.message);if(s.type!=='BrowserFallback'){try{const fallback=await collectSource('BrowserFallback',s.url,'.tmp-media');for(const candidate of fallback){const p=probe(candidate.file);if(p.valid)verified.push({...candidate,sourceType:'ChromiumPlaywrightFallback',probe:p});if(verified.length>=2)break;}}catch(fallbackError){console.warn('Chromium/Playwright fallback after adapter error failed:',s.url,fallbackError.message);}}}if(verified.length<2)throw new Error('SOURCE_MEDIA_INSUFFICIENT_VALID_VIDEO: '+verified.length);const results=[];for(let i=0;i<2;i++){const v=verified[i],assetId=String(v.sourceType||defaultType||sources[0]?.type).toLowerCase()+'-'+(i+1),fd=path.join('phase4-input',assetId,'frames'),fr=frames(v.file,fd,v.probe.duration);results.push({assetId,fileName:path.basename(v.file),durationSeconds:v.probe.duration,width:v.probe.width,height:v.probe.height,fileSizeBytes:v.probe.size,frameCount:12,frames:fr,provenance:'normalized_source_real_media_ffprobe_extracted',sourceType:v.sourceType||defaultType||sources[0]?.type,sourceUrl:v.sourceUrl});}const manifest={complete:true,schemaVersion:'2.2',sourceType:defaultType||sources[0]?.type,sourceUrls:sources,campaignId,videoAssetCount:2,frameCount:24,results,fallbackUsed:results.some(x=>String(x.sourceType||'').includes('ChromiumPlaywrightFallback')),createdAt:new Date().toISOString()};fs.writeFileSync('phase4-input/phase4-input-manifest.json',JSON.stringify(manifest,null,2));fs.writeFileSync('mediasilo-debug.json',JSON.stringify({sourceType:defaultType||sources[0]?.type,sourceUrls:sources,assets:results.map(x=>({assetId:x.assetId,fileName:x.fileName,sourceUrl:x.sourceUrl,duration:x.durationSeconds}))},null,2));fs.writeFileSync('mediasilo-network.log','Normalized source worker completed.\\n');console.log('PHASE4_ARTIFACT_VALIDATION_PASS');})();
+const typedDiscovered=discovered.map(x=>({...x,sourceType:x.sourceAdapter||s.type}));candidates.push(...typedDiscovered);if(String(s.type).toLowerCase()==='googledrive'&&!s.url.toLowerCase().includes('/drive/folders/')&&candidates.length===before)googleDriveBrowserFallbacks++;for(const candidate of discovered){const p=probe(candidate.file);if(p.valid)verified.push({...candidate,sourceType:candidate.sourceType||s.type,probe:p});if(verified.length>=1000)break;}if(verified.length>=2)break;}catch(e){console.warn('source failed',s.type,s.url,e.message);if(s.type!=='BrowserFallback'){try{const fallback=await collectSource('BrowserFallback',s.url,'.tmp-media');for(const candidate of fallback){const p=probe(candidate.file);if(p.valid)verified.push({...candidate,sourceType:'ChromiumPlaywrightFallback',probe:p});if(verified.length>=1000)break;}}catch(fallbackError){console.warn('Chromium/Playwright fallback after adapter error failed:',s.url,fallbackError.message);}}}if(verified.length<2)throw new Error('SOURCE_MEDIA_INSUFFICIENT_VALID_VIDEO: '+verified.length);const results=[];
+const crypto=require('crypto');
+const seenAssets=new Set();
+for(let i=0;i<verified.length;i++){
+  const v=verified[i];
+  const dedupeKey=String(v.sourceUrl||'')+'|'+path.basename(v.file);
+  if(seenAssets.has(dedupeKey))continue;
+  seenAssets.add(dedupeKey);
+  const assetId=String(v.sourceType||defaultType||sources[0]?.type).toLowerCase()+'-'+crypto.createHash('sha256').update(dedupeKey).digest('hex').slice(0,16);
+  const fd=path.join('phase4-input',assetId,'frames');
+  const fr=frames(v.file,fd,v.probe.duration);
+  results.push({assetId,fileName:path.basename(v.file),durationSeconds:v.probe.duration,width:v.probe.width,height:v.probe.height,fileSizeBytes:v.probe.size,frameCount:fr.length,frames:fr,provenance:'normalized_source_real_media_ffprobe_extracted',sourceType:v.sourceType||defaultType||sources[0]?.type,sourceUrl:v.sourceUrl});
+}
+if(!results.length)throw new Error('SOURCE_MEDIA_INSUFFICIENT_VALID_VIDEO: 0');
+const manifest={complete:true,schemaVersion:'2.3',sourceType:defaultType||sources[0]?.type,sourceUrls:sources,campaignId,videoAssetCount:results.length,frameCount:results.reduce((n,x)=>n+x.frameCount,0),results,fallbackUsed:results.some(x=>String(x.sourceType||'').includes('ChromiumPlaywrightFallback')),createdAt:new Date().toISOString()};fs.writeFileSync('phase4-input/phase4-input-manifest.json',JSON.stringify(manifest,null,2));fs.writeFileSync('mediasilo-debug.json',JSON.stringify({sourceType:defaultType||sources[0]?.type,sourceUrls:sources,assets:results.map(x=>({assetId:x.assetId,fileName:x.fileName,sourceUrl:x.sourceUrl,duration:x.durationSeconds}))},null,2));fs.writeFileSync('mediasilo-network.log','Normalized source worker completed.\\n');console.log('PHASE4_ARTIFACT_VALIDATION_PASS');})();
