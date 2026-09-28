@@ -31,10 +31,6 @@ quality_report = json.loads((QA_DIR / "quality_report.json").read_text(encoding=
 
 if phase7.get("complete") is not True:
     raise RuntimeError("Phase 7 provenance is not complete.")
-if phase7.get("originalAudioPreserved") is not True:
-    raise RuntimeError("Phase 7 provenance does not confirm original audio preservation.")
-if phase7.get("campaignBrandingApplied") is not True:
-    raise RuntimeError("Phase 7 provenance does not confirm campaign branding.")
 if len(phase7.get("plans", [])) < 1:
     raise RuntimeError("Phase 7 provenance must contain at least one plan.")
 if len(phase7.get("sourceAssets", [])) < 1:
@@ -49,6 +45,12 @@ required_text = campaign_rules.get("onScreenText", {}).get("requiredLines", [])
 logo_required = bool(campaign_rules.get("branding", {}).get("logoRequired"))
 text_required = bool(campaign_rules.get("onScreenText", {}).get("required"))
 minimum_duration = max(MIN_DURATION, float(campaign_rules.get("video", {}).get("minimumDurationSeconds") or 10))
+require_audio = bool(campaign_rules.get("audio", {}).get("originalAudioMustRemainAudible", False))
+branding_required = bool(logo_required or text_required)
+if bool(phase7.get("originalAudioPreserved", False)) != require_audio:
+    raise RuntimeError("Phase 7 audio provenance does not match persisted campaign rules.")
+if bool(phase7.get("campaignBrandingApplied", False)) != branding_required:
+    raise RuntimeError("Phase 7 branding provenance does not match persisted campaign rules.")
 
 expected_text = (ROOT / "campaign_text.txt").read_text(encoding="utf-8").strip() if text_required else ""
 if text_required and not expected_text:
@@ -188,9 +190,9 @@ for video in videos:
         "bitrateAtLeast500kbps": bitrate >= MIN_BITRATE,
         "h264Video": v.get("codec_name") == "h264",
         "yuv420p": v.get("pix_fmt") == "yuv420p",
-        "audioPresent": bool(audio_streams),
-        "aacAudio": a.get("codec_name") == "aac" if audio_streams else False,
-        "audioDurationAligned": abs(float(a.get("duration") or duration) - duration) <= 0.75 if audio_streams else False,
+        "audioPresent": bool(audio_streams) if require_audio else True,
+        "aacAudio": a.get("codec_name") == "aac" if audio_streams else (not require_audio),
+        "audioDurationAligned": abs(float(a.get("duration") or duration) - duration) <= 0.75 if audio_streams else (not require_audio),
         "decodeComplete": False,
         "logoSampledVisible": (not logo_required),
         "requiredTextSampledVisible": (not text_required),
@@ -303,7 +305,7 @@ out = {
         "fullDecodeCompleted": True,
         "campaignLogoSampledVisible": logo_required,
         "requiredOnScreenTextSampledVisible": text_required,
-        "originalAudioStreamPresent": True,
+        "originalAudioStreamPresent": require_audio,
         "durationWithinPhase6Plan": True,
     },
     "clipReports": clip_reports,
