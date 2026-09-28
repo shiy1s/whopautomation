@@ -95,7 +95,12 @@ jobs:
           set -euo pipefail
           tag="phase11-media-${GITHUB_RUN_ID}"
           echo "PHASE11_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
-          gh release create "$tag"             phase10/videos/clip_01.mp4             phase10/videos/clip_02.mp4             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "Phase 11 temporary media ${GITHUB_RUN_ID}"             --notes "Temporary public transport for the Phase 11 Instagram publishing transaction. Delete after publishing."
+          assets=()
+          while IFS= read -r file; do
+            assets+=( "$file" )
+          done < <(find phase10/videos -maxdepth 1 -type f -name 'clip_*.mp4' | sort)
+          test "${#assets[@]}" -ge 1
+          gh release create "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Phase 11 temporary media ${GITHUB_RUN_ID}" --notes "Temporary public transport for the Phase 11 Instagram publishing transaction. Delete after publishing."
 
       - name: Publish exact Phase 10 package
         shell: bash
