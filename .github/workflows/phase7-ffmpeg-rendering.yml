@@ -97,8 +97,11 @@ jobs:
               streams=probe.get("streams", [])
               video=next((s for s in streams if s.get("codec_type")=="video"), None)
               audio=any(s.get("codec_type")=="audio" for s in streams)
-              if video is None or not audio:
-                  raise SystemExit(f"{p}: source must contain video and original audio")
+              require_audio=bool(json.loads(Path("phase6-source/phase6-clip-plan-manifest.json").read_text()).get("renderDirectives",{}).get("originalAudioMustRemainAudible",False))
+              if video is None:
+                  raise SystemExit(f"{p}: source must contain video")
+              if require_audio and not audio:
+                  raise SystemExit(f"{p}: campaign requires original audio but source has none")
               if int(video.get("width") or 0) <= 0 or int(video.get("height") or 0) <= 0:
                   raise SystemExit(f"{p}: invalid source resolution")
               actual=float(probe["format"]["duration"])
@@ -242,8 +245,9 @@ jobs:
               "sourceAssets":sources["assets"],
               "plans":phase6["clipPlans"],
               "qualityReport":qa,
-              "originalAudioPreserved":True,
-              "campaignBrandingApplied":True,
+              "renderDirectives":phase6.get("renderDirectives",{}),
+              "originalAudioPreserved":bool(phase6.get("renderDirectives",{}).get("originalAudioMustRemainAudible",False)),
+              "campaignBrandingApplied":bool(phase6.get("renderDirectives",{}).get("logoRequired",False) or phase6.get("renderDirectives",{}).get("onScreenTextRequired",False)),
           }
           Path("phase7-render-manifest.json").write_text(json.dumps(out,indent=2),encoding="utf-8")
           PY
