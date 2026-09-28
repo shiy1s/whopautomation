@@ -156,7 +156,7 @@ for clip in data["clips"]:
     if text_required:
         if not os.path.isfile("campaign_text.txt"):
             raise RuntimeError(f"Clip {idx}: required campaign on-screen text asset is missing.")
-        parts.append(cur + ":drawtext=fontfile=" + font + ":textfile=campaign_text.txt:fontcolor=white:fontsize=34:line_spacing=10:text_align=center:x=(w-text_w)/2:y=320:shadowcolor=black@0.85:shadowx=2:shadowy=2:fix_bounds=1[v0]")
+        parts.append(cur + "drawtext=fontfile=" + font + ":textfile=campaign_text.txt:fontcolor=white:fontsize=34:line_spacing=10:text_align=center:x=(w-text_w)/2:y=320:shadowcolor=black@0.85:shadowx=2:shadowy=2:fix_bounds=1[v0]")
         cur = "[v0]"
     else:
         parts.append(cur + "null[v0]")
