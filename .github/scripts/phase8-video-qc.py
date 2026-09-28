@@ -151,8 +151,6 @@ def detect_audio(video):
     }
 
 report_by_file = {x["file"]: x for x in quality_report}
-plans_by_asset = {p["assetId"]: p for p in phase7["plans"]}
-
 videos = sorted(VIDEO_DIR.glob("clip_*.mp4"))
 if len(videos) < 1:
     raise RuntimeError("Expected at least one Phase 7 video.")
