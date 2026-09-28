@@ -5,6 +5,11 @@ with open("clips.json", encoding="utf-8") as f:
 
 logo = "Call_of_Duty_Wordmark_Stacked_CMYK_White.png"
 font = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+with open("render-config.json", encoding="utf-8") as f:
+    render_config = json.load(f)
+logo_required = bool(render_config.get("logoRequired", False))
+text_required = bool(render_config.get("onScreenTextRequired", False))
+require_audio = bool(render_config.get("originalAudioMustRemainAudible", False))
 
 
 def sec(ts):
@@ -63,18 +68,18 @@ for clip in data["clips"]:
             raise RuntimeError(f"Clip {idx}: missing source file {source}.")
         inputs += ["-i", source]
 
-    # All campaign sources are required to preserve original audio by the
-    # upstream source contract. If a source has no audio, fail rather than
-    # silently inventing/replacing audio.
+    source_has_audio = {}
     for source in source_files:
         probe = subprocess.run(
             ["ffprobe", "-v", "error", "-select_streams", "a:0",
              "-show_entries", "stream=index", "-of", "csv=p=0", source],
             capture_output=True, text=True
         )
-        if not probe.stdout.strip():
-            raise RuntimeError(f"Clip {idx}: original audio missing from {source}.")
+        source_has_audio[source] = bool(probe.stdout.strip())
+        if require_audio and not source_has_audio[source]:
+            raise RuntimeError(f"Clip {idx}: campaign requires original audio but {source} has none.")
 
+    use_audio = all(source_has_audio.values())
     assembled = f"work/clip_{idx:02d}_assembled.mp4"
     g = []
     segment_refs = []
@@ -82,15 +87,25 @@ for clip in data["clips"]:
         source_idx = source_index[s["source"]]
         a, b = sec(s["start"]), sec(s["end"])
         g.append(f"[{source_idx}:v]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[v{i}t]")
-        g.append(f"[{source_idx}:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[a{i}t]")
-        segment_refs.append(f"[v{i}t][a{i}t]")
+        if use_audio:
+            g.append(f"[{source_idx}:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[a{i}t]")
+            segment_refs.append(f"[v{i}t][a{i}t]")
+        else:
+            segment_refs.append(f"[v{i}t]")
 
-    g.append("".join(segment_refs) + f"concat=n={len(segs)}:v=1:a=1[vout][aout]")
+    if use_audio:
+        g.append("".join(segment_refs) + f"concat=n={len(segs)}:v=1:a=1[vout][aout]")
+    else:
+        g.append("".join(segment_refs) + f"concat=n={len(segs)}:v=1:a=0[vout]")
+
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-y"] + inputs
-    cmd += ["-filter_complex", ";".join(g), "-map", "[vout]", "-map", "[aout]",
-            "-t", f"{total:.3f}", "-c:v", "libx264", "-preset", "veryfast",
-            "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k",
-            "-movflags", "+faststart", assembled]
+    cmd += ["-filter_complex", ";".join(g), "-map", "[vout]"]
+    if use_audio:
+        cmd += ["-map", "[aout]"]
+    cmd += ["-t", f"{total:.3f}", "-c:v", "libx264", "-preset", "veryfast",
+            "-crf", "20", "-pix_fmt", "yuv420p"]
+    cmd += ["-c:a", "aac", "-b:a", "160k"] if use_audio else ["-an"]
+    cmd += ["-movflags", "+faststart", assembled]
     run(cmd, f"Assemble clip {idx}")
 
     # Caption timing remains relative to the final assembled timeline.
@@ -129,11 +144,24 @@ for clip in data["clips"]:
         "[bg0][shade]overlay=0:0[bg1]",
         "[fg]scale=1080:608:force_original_aspect_ratio=decrease,pad=1080:608:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30[fg0]",
         "[bg1][fg0]overlay=0:656[base]",
-        "[1:v]scale=220:-1[logo]",
-        "[base][logo]overlay=(W-w)/2:115[branded]",
-        "[branded]drawtext=fontfile=" + font + ":textfile=campaign_text.txt:fontcolor=white:fontsize=34:line_spacing=10:text_align=center:x=(w-text_w)/2:y=320:shadowcolor=black@0.85:shadowx=2:shadowy=2:fix_bounds=1[v0]",
     ]
-    cur = "[v0]"
+    cur = "[base]"
+    if logo_required:
+        parts += [
+            "[1:v]scale=220:-1[logo]",
+            "[base][logo]overlay=(W-w)/2:115[branded]",
+        ]
+        cur = "[branded]"
+
+    if text_required:
+        if not os.path.isfile("campaign_text.txt"):
+            raise RuntimeError(f"Clip {idx}: required campaign on-screen text asset is missing.")
+        parts.append(cur + ":drawtext=fontfile=" + font + ":textfile=campaign_text.txt:fontcolor=white:fontsize=34:line_spacing=10:text_align=center:x=(w-text_w)/2:y=320:shadowcolor=black@0.85:shadowx=2:shadowy=2:fix_bounds=1[v0]")
+        cur = "[v0]"
+    else:
+        parts.append(cur + "null[v0]")
+        cur = "[v0]"
+
     for j, (a, b, text) in enumerate(clean, 1):
         path = os.path.abspath(f"caption_files/clip_{idx:02d}_{j:03d}.txt").replace("\\", "/")
         with open(path, "w", encoding="utf-8") as f:
@@ -144,9 +172,10 @@ for clip in data["clips"]:
     parts.append(cur + "null[outv]")
 
     final = f"output/clip_{idx:02d}.mp4"
-    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-y",
-           "-i", assembled, "-loop", "1", "-i", logo,
-           "-filter_complex", ";".join(parts), "-map", "[outv]"]
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-y", "-i", assembled]
+    if logo_required:
+        cmd += ["-loop", "1", "-i", logo]
+    cmd += ["-filter_complex", ";".join(parts), "-map", "[outv]"]
     if audio:
         cmd += ["-map", "0:a?"]
     cmd += ["-t", f"{total:.3f}", "-r", "30", "-c:v", "libx264",
