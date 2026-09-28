@@ -114,10 +114,18 @@ jobs:
       - name: Verify proven renderer assets
         run: |
           set -euo pipefail
-          test -s Call_of_Duty_Wordmark_Stacked_CMYK_White.png
-          test -s campaign_text.txt
           test -s .github/scripts/phase7-render-clips.py
           test -f /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path("phase6-source/phase6-clip-plan-manifest.json").read_text()).get("renderDirectives",{})
+          if d.get("logoRequired") and not Path("Call_of_Duty_Wordmark_Stacked_CMYK_White.png").is_file():
+              raise SystemExit("Required campaign logo asset is not provisioned.")
+          if d.get("onScreenTextRequired") and not d.get("onScreenTextOptions"):
+              raise SystemExit("Required campaign on-screen text is not provisioned.")
+          print("PHASE7_RENDER_ASSET_RULE_CHECK_PASS")
+          PY
 
       - name: Prepare and validate isolated render jobs
         run: |
