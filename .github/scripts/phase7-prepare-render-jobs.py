@@ -10,10 +10,23 @@ plans = plan_doc.get("clipPlans", [])
 if not plans:
     raise RuntimeError("No Phase 6 clip plans found.")
 
+directives = plan_doc.get("renderDirectives", {})
+logo_required = bool(directives.get("logoRequired", False))
+text_required = bool(directives.get("onScreenTextRequired", False))
+text_options = [str(x).strip() for x in directives.get("onScreenTextOptions", []) if str(x).strip()]
 logo = Path("Call_of_Duty_Wordmark_Stacked_CMYK_White.png")
 campaign_text = Path("campaign_text.txt")
-if not logo.is_file() or not campaign_text.is_file():
-    raise RuntimeError("Proven renderer campaign assets are missing.")
+
+# The current proven campaign has a committed logo/text asset. For a new campaign,
+# never reuse it silently: if branding/text is required but not provisioned, stop.
+if logo_required and not logo.is_file():
+    raise RuntimeError("CAMPAIGN_LOGO_ASSET_REQUIRED_BUT_NOT_PROVISIONED")
+if text_required and not text_options and not campaign_text.is_file():
+    raise RuntimeError("CAMPAIGN_ONSCREEN_TEXT_REQUIRED_BUT_NOT_PROVISIONED")
+if text_required and not text_options and campaign_text.is_file():
+    text_options = [campaign_text.read_text(encoding="utf-8").strip()]
+if text_required and not text_options:
+    raise RuntimeError("CAMPAIGN_ONSCREEN_TEXT_REQUIRED_BUT_EMPTY")
 
 root = Path("render-jobs")
 if root.exists():
@@ -77,8 +90,18 @@ for rank, p in enumerate(plans, 1):
         "reason": str(p.get("rationale") or "Phase 5 opportunity-driven selection."),
         "score": round(float(p.get("confidence", 0)) * 100, 2),
     }
-    (job / logo.name).write_bytes(logo.read_bytes())
-    (job / campaign_text.name).write_bytes(campaign_text.read_bytes())
+    if logo_required:
+        (job / logo.name).write_bytes(logo.read_bytes())
+    if text_required:
+        (job / "campaign_text.txt").write_text(text_options[0], encoding="utf-8")
+    (job / "render-config.json").write_text(json.dumps({
+        "logoRequired": logo_required,
+        "onScreenTextRequired": text_required,
+        "onScreenText": text_options[0] if text_required else "",
+        "originalAudioMustRemainAudible": bool(directives.get("originalAudioMustRemainAudible", False)),
+        "campaignId": plan_doc.get("campaign", {}).get("campaignId"),
+        "campaignName": plan_doc.get("campaign", {}).get("campaignName"),
+    }, indent=2, ensure_ascii=False), encoding="utf-8")
     (job / "clips.json").write_text(json.dumps({
         "source_duration_seconds": None,
         "top_moments": [],
