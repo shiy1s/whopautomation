@@ -192,6 +192,7 @@ def main():
             "logoRequired": bool(campaign_rules.get("branding", {}).get("logoRequired", False)),
             "onScreenTextRequired": bool(campaign_rules.get("onScreenText", {}).get("required", False)),
             "onScreenTextOptions": list(campaign_rules.get("onScreenText", {}).get("requiredLines", []) or []),
+            "renderAssets": dict(campaign_rules.get("renderAssets", {}) or {}),
             "minimumDurationSeconds": campaign_min,
             "maximumRenderDurationSeconds": MAX_RENDER_DURATION,
         },
