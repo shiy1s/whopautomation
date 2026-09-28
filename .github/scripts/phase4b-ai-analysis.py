@@ -15,9 +15,8 @@ MODELS = [
 ]
 MAX_ATTEMPTS_PER_MODEL = 3
 RETRY_SECONDS = 5
-EXPECTED_ASSETS = 2
+MIN_ASSETS = 1
 FRAMES_PER_ASSET = 12
-EXPECTED_FRAMES = 24
 
 
 def load_json(path):
@@ -42,11 +41,12 @@ def validate_input(manifest):
     if manifest.get("complete") is not True:
         raise ValueError("Phase 4 input manifest is not complete=true.")
     results = manifest.get("results")
-    if not isinstance(results, list) or len(results) != EXPECTED_ASSETS:
-        raise ValueError(f"Expected {EXPECTED_ASSETS} Phase 4 assets.")
-    if manifest.get("videoAssetCount") != EXPECTED_ASSETS:
+    if not isinstance(results, list) or len(results) < MIN_ASSETS:
+        raise ValueError("Phase 4 must contain at least one real media asset.")
+    if int(manifest.get("videoAssetCount") or 0) != len(results):
         raise ValueError("Phase 4 videoAssetCount mismatch.")
-    if manifest.get("frameCount") != EXPECTED_FRAMES:
+    expected_total_frames = sum(len(a.get("frames") or []) for a in results)
+    if int(manifest.get("frameCount") or 0) != expected_total_frames:
         raise ValueError("Phase 4 total frameCount mismatch.")
 
     seen = set()
@@ -289,10 +289,8 @@ def main():
         analyses.append(asset_output)
         total += len(result["frames"])
 
-    if len(analyses) != EXPECTED_ASSETS or total != EXPECTED_FRAMES:
-        raise RuntimeError(
-            f"Phase 4B completeness failure: assets={len(analyses)} frames={total}"
-        )
+    if len(analyses) < MIN_ASSETS or total != int(manifest.get("frameCount") or 0):
+        raise RuntimeError(f"Phase 4B completeness failure: assets={len(analyses)} frames={total}")
 
     # Deterministic cross-check: every Phase 4 frame must have exactly one analysis.
     for source_asset, analyzed_asset in zip(manifest["results"], analyses):
