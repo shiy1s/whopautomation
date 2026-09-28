@@ -142,17 +142,32 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
       }
     }
     if(candidates.length<requiredAssetCount) throw new Error('NORMALIZED_SOURCE_INSUFFICIENT_FILES: '+candidates.length+' required='+requiredAssetCount);
-    const assets=[];
-    for(const item of candidates){
-      const probe=runFFprobe(item.file);
-      if(!probe.valid||probe.duration<10) continue;
-      const index=assets.length+1;
-      const target=path.join(outDir,'source_'+String(index).padStart(2,'0')+'.mp4');
-      fs.copyFileSync(item.file,target);
-      assets.push({assetId:String(requiredAssetIds[assets.length]||sourceType+'-'+index),fileName:path.basename(item.file),path:target,durationSeconds:probe.duration,width:probe.width,height:probe.height,sizeBytes:probe.size,sourceType:sourceType,sourceUrl:item.sourceUrl});
-      if(assets.length>=requiredAssetCount)break;
+    const requested=[];
+    for(const p of plans){
+      for(const s of (Array.isArray(p.segments)?p.segments:[])){
+        const aid=String(s.assetId||'').trim();
+        if(!aid || requested.some(x=>x.assetId===aid)) continue;
+        requested.push({assetId:aid,fileName:String(s.fileName||'')});
+      }
     }
-    if(assets.length!==requiredAssetCount) throw new Error('NORMALIZED_SOURCE_INSUFFICIENT_VALID_VIDEO: '+assets.length+' required='+requiredAssetCount);
+    const selected=[];
+    for(const req of requested){
+      const wanted=path.basename(req.fileName||'').toLowerCase();
+      const match=candidates.find(x=>path.basename(x.file).toLowerCase()===wanted) ||
+                  candidates.find(x=>wanted && path.basename(x.file).toLowerCase().includes(wanted));
+      if(match && !selected.includes(match)) selected.push(match);
+    }
+    for(const item of candidates){if(selected.length>=requiredAssetCount)break;if(!selected.includes(item))selected.push(item);}
+    if(selected.length!==requiredAssetCount) throw new Error('NORMALIZED_SOURCE_ASSET_MAPPING_FAILED: '+selected.length+' required='+requiredAssetCount);
+    const assets=[];
+    for(let i=0;i<requiredAssetCount;i++){
+      const item=selected[i];
+      const probe=runFFprobe(item.file);
+      if(!probe.valid||probe.duration<10) throw new Error('NORMALIZED_SOURCE_INVALID_VIDEO: '+path.basename(item.file));
+      const target=path.join(outDir,'source_'+String(i+1).padStart(2,'0')+'.mp4');
+      fs.copyFileSync(item.file,target);
+      assets.push({assetId:String(requiredAssetIds[i]),fileName:path.basename(item.file),path:target,durationSeconds:probe.duration,width:probe.width,height:probe.height,sizeBytes:probe.size,sourceType:sourceType,sourceUrl:item.sourceUrl});
+    }
     fs.writeFileSync('phase7-source-manifest.json',JSON.stringify({schemaVersion:'2.0',complete:true,sourceType:sourceType,sourceUrl:sourceUrl,campaignId:String(phase6.campaign?.campaignId||''),assets,createdAt:new Date().toISOString()},null,2));
     console.log('PHASE7_SOURCE_VALIDATION_PASS');
     process.exit(0);
