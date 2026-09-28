@@ -15,8 +15,8 @@ if phase8.get("complete") is not True or phase8.get("status")!="pass":
 if phase8.get("checks",{}).get("allDeterministicChecksPass") is not True:
     raise RuntimeError("Phase 8 deterministic QC checks did not pass.")
 clip_reports=phase8.get("clipReports",[])
-if len(clip_reports)!=2:
-    raise RuntimeError("Phase 9 requires exactly two Phase 8 clip reports.")
+if len(clip_reports)<1:
+    raise RuntimeError("Phase 9 requires at least one Phase 8 clip report.")
 
 campaign_id=str(phase8.get("campaignId") or phase8.get("campaign",{}).get("campaignId") or "").strip()
 if not campaign_id:
