@@ -14,8 +14,12 @@ directives = plan_doc.get("renderDirectives", {})
 logo_required = bool(directives.get("logoRequired", False))
 text_required = bool(directives.get("onScreenTextRequired", False))
 text_options = [str(x).strip() for x in directives.get("onScreenTextOptions", []) if str(x).strip()]
-logo = Path("Call_of_Duty_Wordmark_Stacked_CMYK_White.png")
-campaign_text = Path("campaign_text.txt")
+# Campaign-provided render assets must be explicitly identified by Phase 3 rules.
+render_assets = directives.get("renderAssets", {}) if isinstance(directives.get("renderAssets", {}), dict) else {}
+logo_path = str(render_assets.get("logoPath") or "").strip()
+text_path = str(render_assets.get("onScreenTextPath") or "").strip()
+logo = Path(logo_path) if logo_path else Path("Call_of_Duty_Wordmark_Stacked_CMYK_White.png")
+campaign_text = Path(text_path) if text_path else Path("campaign_text.txt")
 
 # The current proven campaign has a committed logo/text asset. For a new campaign,
 # never reuse it silently: if branding/text is required but not provisioned, stop.
@@ -101,6 +105,8 @@ for rank, p in enumerate(plans, 1):
         "originalAudioMustRemainAudible": bool(directives.get("originalAudioMustRemainAudible", False)),
         "campaignId": plan_doc.get("campaign", {}).get("campaignId"),
         "campaignName": plan_doc.get("campaign", {}).get("campaignName"),
+        "logoFile": logo.name if logo_required else None,
+        "onScreenTextFile": "campaign_text.txt" if text_required else None,
     }, indent=2, ensure_ascii=False), encoding="utf-8")
     (job / "clips.json").write_text(json.dumps({
         "source_duration_seconds": None,
