@@ -10,5 +10,112 @@ const frames=(file,out,duration)=>{fs.mkdirSync(out,{recursive:true});const a=[]
 const unique=a=>[...new Set(a.map(String).map(x=>x.trim()).filter(Boolean))];
 async function download(url,target){const r=await fetch(url,{redirect:'follow',headers:{'User-Agent':'WhopAutomationMediaWorker/1.0','Accept':'*/*'}});if(!r.ok)throw new Error('HTTP '+r.status);const b=Buffer.from(await r.arrayBuffer());if(b.length<100000)throw new Error('response too small');fs.writeFileSync(target,b);return r.url;}
 async function browserCandidates(url){const browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-setuid-sandbox']});const ctx=await browser.newContext({viewport:{width:1920,height:1080},userAgent:'Mozilla/5.0'});const found=new Map();const page=await ctx.newPage();page.on('response',r=>{try{const u=r.url(),ct=String(r.headers()['content-type']||'');if(isMediaUrl(u)||/^video\//i.test(ct))found.set(u,{url:u,ct});}catch{}});await page.goto(url,{waitUntil:'networkidle',timeout:45000}).catch(()=>{});await sleep(4000);const html=await page.content().catch(()=> '');for(const m of html.matchAll(/https?:\/\/[^\s<>'"\\]+/g)){const u=m[0].replace(/[),]}]+$/,'');if(isMediaUrl(u))found.set(u,{url:u,ct:'html'});}await browser.close();return[...found.values()];}
-async function collectSource(type,url,tmp){const out=[];const l=String(type).toLowerCase();if(l==='directfile'){const p=path.join(tmp,'direct_'+out.length+'.bin');await download(url,p);out.push({file:p,sourceUrl:url});return out;}if(l==='googledrive'){const dir=path.join(tmp,'gdrive_'+Date.now());fs.mkdirSync(dir,{recursive:true});if(url.toLowerCase().includes('/drive/folders/'))cp.execFileSync('gdown',['--folder','--continue','--retries','3',url,'-O',dir],{stdio:'inherit'});else cp.execFileSync('gdown',['--continue','--retries','3',url,'-O',path.join(dir,'source')],{stdio:'inherit'});const walk=d=>fs.readdirSync(d,{withFileTypes:true}).flatMap(e=>{const p=path.join(d,e.name);return e.isDirectory()?walk(p):[p];});for(const f of walk(dir).filter(x=>mediaExt.test(x)))out.push({file:f,sourceUrl:url});return out;}if(l==='dropbox'){let u=url;try{const x=new URL(u);x.searchParams.set('dl','1');u=x.href;}catch{}try{const p=path.join(tmp,'dropbox_'+Date.now()+'.bin');await download(u,p);if(probe(p).valid)out.push({file:p,sourceUrl:url});else fs.unlinkSync(p);}catch{}if(!out.length){for(const c of await browserCandidates(url)){const p=path.join(tmp,'dropbox_'+Date.now()+'.mp4');try{await download(c.url,p);if(probe(p).valid){out.push({file:p,sourceUrl:url});break;}fs.unlinkSync(p);}catch{if(fs.existsSync(p))fs.unlinkSync(p);}}}return out;}if(l==='youtube'){const dir=path.join(tmp,'youtube_'+Date.now());fs.mkdirSync(dir,{recursive:true});cp.execFileSync('yt-dlp',['--no-playlist','-f','bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b','--merge-output-format','mp4','-o',path.join(dir,'source.%(ext)s'),url],{stdio:'inherit'});for(const f of fs.readdirSync(dir).map(x=>path.join(dir,x)).filter(x=>mediaExt.test(x)))out.push({file:f,sourceUrl:url});return out;}if(l==='mediasilo'||l==='nextframe'){for(const c of await browserCandidates(url)){const p=path.join(tmp,'browser_'+Date.now()+'.mp4');try{await download(c.url,p);if(probe(p).valid){out.push({file:p,sourceUrl:url});if(out.length>=2)break;}fs.unlinkSync(p);}catch{if(fs.existsSync(p))fs.unlinkSync(p);}}return out;}return out;}
+async function collectSource(type,url,tmp){
+  const out=[];
+  const l=String(type).toLowerCase();
+
+  if(l==='directfile'){
+    const p=path.join(tmp,'direct_'+out.length+'.bin');
+    await download(url,p);
+    out.push({file:p,sourceUrl:url});
+    return out;
+  }
+
+  if(l==='googledrive'){
+    const dir=path.join(tmp,'gdrive_'+Date.now());
+    fs.mkdirSync(dir,{recursive:true});
+
+    // Folder links: use gdown because it can enumerate the folder. A quota
+    // failure is non-fatal; individual file URLs discovered from the campaign
+    // are still attempted by the caller.
+    if(url.toLowerCase().includes('/drive/folders/')){
+      try{
+        cp.execFileSync('gdown',['--folder','--continue','--retries','3',url,'-O',dir],{stdio:'inherit'});
+      }catch(e){
+        console.warn('Google Drive folder download unavailable:',e.message);
+      }
+      const walk=d=>fs.readdirSync(d,{withFileTypes:true}).flatMap(e=>{
+        const p=path.join(d,e.name);
+        return e.isDirectory()?walk(p):[p];
+      });
+      for(const file of walk(dir).filter(x=>mediaExt.test(x))) out.push({file,sourceUrl:url});
+      return out;
+    }
+
+    // Individual Drive file: try gdown first, then inspect the Drive viewer
+    // for a real video response if direct download is quota-blocked.
+    try{
+      const p=path.join(dir,'source');
+      cp.execFileSync('gdown',['--continue','--retries','3',url,'-O',p],{stdio:'inherit'});
+      if(fs.existsSync(p)) out.push({file:p,sourceUrl:url});
+    }catch(e){
+      console.warn('Google Drive direct download unavailable:',url,e.message);
+    }
+
+    if(!out.length){
+      for(const candidate of await browserCandidates(url)){
+        const ext=isMediaUrl(candidate.url)?'.mp4':'.bin';
+        const p=path.join(dir,'browser_'+Date.now()+ext);
+        try{
+          await download(candidate.url,p);
+          if(probe(p).valid){
+            out.push({file:p,sourceUrl:url});
+            break;
+          }
+          fs.unlinkSync(p);
+        }catch(e){
+          if(fs.existsSync(p)) fs.unlinkSync(p);
+        }
+      }
+    }
+    return out;
+  }
+
+  if(l==='dropbox'){
+    let u=url;
+    try{const x=new URL(u);x.searchParams.set('dl','1');u=x.href;}catch{}
+    try{
+      const p=path.join(tmp,'dropbox_'+Date.now()+'.bin');
+      await download(u,p);
+      if(probe(p).valid) out.push({file:p,sourceUrl:url});
+      else fs.unlinkSync(p);
+    }catch{}
+    if(!out.length){
+      for(const c of await browserCandidates(url)){
+        const p=path.join(tmp,'dropbox_'+Date.now()+'.mp4');
+        try{
+          await download(c.url,p);
+          if(probe(p).valid){out.push({file:p,sourceUrl:url});break;}
+          fs.unlinkSync(p);
+        }catch{if(fs.existsSync(p))fs.unlinkSync(p);}
+      }
+    }
+    return out;
+  }
+
+  if(l==='youtube'){
+    const dir=path.join(tmp,'youtube_'+Date.now());
+    fs.mkdirSync(dir,{recursive:true});
+    cp.execFileSync('yt-dlp',['--no-playlist','-f','bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b','--merge-output-format','mp4','-o',path.join(dir,'source.%(ext)s'),url],{stdio:'inherit'});
+    for(const file of fs.readdirSync(dir).map(x=>path.join(dir,x)).filter(x=>mediaExt.test(x))) out.push({file,sourceUrl:url});
+    return out;
+  }
+
+  if(l==='mediasilo'||l==='nextframe'){
+    for(const c of await browserCandidates(url)){
+      const p=path.join(tmp,'browser_'+Date.now()+'.mp4');
+      try{
+        await download(c.url,p);
+        if(probe(p).valid){
+          out.push({file:p,sourceUrl:url});
+          if(out.length>=2) break;
+        }
+        fs.unlinkSync(p);
+      }catch{if(fs.existsSync(p))fs.unlinkSync(p);}
+    }
+    return out;
+  }
+
+  return out;
+}
 (async()=>{const type=String(process.env.INPUT_SOURCE_TYPE||'').trim();let urls=[];try{urls=JSON.parse(process.env.INPUT_SOURCE_URLS||'[]')}catch{};urls=unique(urls);const campaignId=String(process.env.INPUT_CAMPAIGN_ID||'').trim();if(!campaignId||!type||!urls.length)throw new Error('SOURCE_INPUT_INCOMPLETE');const supported=['MediaSilo','GoogleDrive','Dropbox','DirectFile','YouTube','NextFrame'];if(!supported.includes(type))throw new Error('UNSUPPORTED_NORMALIZED_SOURCE: '+type);fs.rmSync('phase4-input',{recursive:true,force:true});fs.rmSync('.tmp-media',{recursive:true,force:true});fs.mkdirSync('phase4-input',{recursive:true});fs.mkdirSync('.tmp-media',{recursive:true});const candidates=[];for(const u of urls){try{candidates.push(...await collectSource(type,u,'.tmp-media'));}catch(e){console.warn('source failed',u,e.message);}}const verified=[];for(const c of candidates){const p=probe(c.file);if(p.valid)verified.push({...c,probe:p});if(verified.length>=2)break;}if(verified.length<2)throw new Error('SOURCE_MEDIA_INSUFFICIENT_VALID_VIDEO: '+verified.length);const results=[];for(let i=0;i<2;i++){const v=verified[i],assetId=type.toLowerCase()+'-'+(i+1),fd=path.join('phase4-input',assetId,'frames'),fr=frames(v.file,fd,v.probe.duration);results.push({assetId,fileName:path.basename(v.file),durationSeconds:v.probe.duration,width:v.probe.width,height:v.probe.height,fileSizeBytes:v.probe.size,frameCount:12,frames:fr,provenance:'normalized_source_real_media_ffprobe_extracted',sourceType:type,sourceUrl:v.sourceUrl});}const manifest={complete:true,schemaVersion:'2.0',sourceType:type,sourceUrls:urls,campaignId,videoAssetCount:2,frameCount:24,results,createdAt:new Date().toISOString()};fs.writeFileSync('phase4-input/phase4-input-manifest.json',JSON.stringify(manifest,null,2));fs.writeFileSync('mediasilo-debug.json',JSON.stringify({sourceType:type,sourceUrls:urls,assets:results.map(x=>({assetId:x.assetId,fileName:x.fileName,sourceUrl:x.sourceUrl,duration:x.durationSeconds}))},null,2));fs.writeFileSync('mediasilo-network.log','Normalized source worker completed.\\n');console.log('PHASE4_ARTIFACT_VALIDATION_PASS');})();
