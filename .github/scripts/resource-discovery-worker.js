@@ -45,22 +45,22 @@ function extractUrls(html, baseUrl) {
     const u = normalizeUrl(raw, baseUrl);
     if (u && !found.has(u)) found.set(u, context || 'link');
   };
-  for (const m of String(html || '').matchAll(/href\\s*=\\s*["']([^"']+)["']/gi)) add(m[1], 'href');
-  for (const m of String(html || '').matchAll(/(?:src|data-src|data-url|data-href)\\s*=\\s*["']([^"']+)["']/gi)) add(m[1], 'embedded');
-  for (const m of String(html || '').matchAll(/https?:\\/\\/[^\\s<>'"\\\\]+/g)) add(m[0], 'plain_url');
+  for (const m of String(html || '').matchAll(/href\s*=\s*["']([^"']+)["']/gi)) add(m[1], 'href');
+  for (const m of String(html || '').matchAll(/(?:src|data-src|data-url|data-href)\s*=\s*["']([^"']+)["']/gi)) add(m[1], 'embedded');
+  for (const m of String(html || '').matchAll(/https?:\/\/[^\s<>'"\\]+/g)) add(m[0], 'plain_url');
   return [...found.entries()].map(([url, context]) => ({url, context}));
 }
 
 function stripHtml(html) {
   return String(html || '')
-    .replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')
-    .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
-    .replace(/\\s+/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
