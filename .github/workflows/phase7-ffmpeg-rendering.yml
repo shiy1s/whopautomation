@@ -45,7 +45,7 @@ jobs:
           import json
           from pathlib import Path
           m=json.loads(Path("phase6-source/phase6-clip-plan-manifest.json").read_text())
-          if m.get("complete") is not True or m.get("clipPlanCount") != 2:
+          if m.get("complete") is not True or int(m.get("clipPlanCount") or 0) < 1:
               raise SystemExit("Phase 6 artifact contract failed")
           for p in m["clipPlans"]:
               d=float(p["durationSeconds"])
@@ -81,7 +81,7 @@ jobs:
           import json
           from pathlib import Path
           m=json.loads(Path("phase7-source-manifest.json").read_text())
-          if m.get("complete") is not True or len(m.get("assets",[])) != 2:
+          if m.get("complete") is not True or len(m.get("assets",[])) < 1:
               raise SystemExit("Phase 7 source manifest contract failed")
           import subprocess
           for a in m["assets"]:
@@ -116,51 +116,56 @@ jobs:
           test -s .github/scripts/phase7-render-clips.py
           test -f /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
 
-      - name: Prepare isolated render jobs
+      - name: Prepare and validate isolated render jobs
         run: |
           set -euo pipefail
           python .github/scripts/phase7-prepare-render-jobs.py
-          test -s render-jobs/01/source.mp4
-          test -s render-jobs/02/source.mp4
-          test -s render-jobs/01/clips.json
-          test -s render-jobs/02/clips.json
+          test -d render-jobs
           python - <<'PY'
           import json
           from pathlib import Path
-          for d in ("01", "02"):
-              p=Path("render-jobs")/d/"clips.json"
-              data=json.loads(p.read_text())
-              clips=data.get("clips", [])
-              if len(clips) != 1:
-                  raise SystemExit(f"{p}: expected exactly one render clip")
+
+          jobs=sorted(p for p in Path("render-jobs").iterdir() if p.is_dir())
+          if not jobs:
+              raise SystemExit("No render jobs were created.")
+          def sec(ts):
+              h,m,s=ts.split(":")
+              return int(h)*3600+int(m)*60+float(s)
+          for job in jobs:
+              data=json.loads((job/"clips.json").read_text())
+              clips=data.get("clips",[])
+              if len(clips)!=1:
+                  raise SystemExit(f"{job}: expected one final clip plan.")
               clip=clips[0]
-              segs=clip.get("segments", [])
-              if len(segs) != 1:
-                  raise SystemExit(f"{p}: expected exactly one source segment")
-              def sec(ts):
-                  h,m,s=ts.split(":")
-                  return int(h)*3600+int(m)*60+float(s)
-              duration=sec(segs[0]["end"])-sec(segs[0]["start"])
+              segs=clip.get("segments",[])
+              if not segs:
+                  raise SystemExit(f"{job}: no source segments.")
+              duration=sum(sec(s["end"])-sec(s["start"]) for s in segs)
               if not 10 <= duration <= 60:
-                  raise SystemExit(f"{p}: renderer duration outside 10-60s: {duration}")
-          print("PHASE7_RENDER_JOB_VALIDATION_PASS")
+                  raise SystemExit(f"{job}: renderer duration outside 10-60s: {duration}")
+              for s in segs:
+                  if not (job/s["source"]).is_file():
+                      raise SystemExit(f"{job}: missing segment source {s['source']}")
+          print(f"PHASE7_RENDER_JOB_VALIDATION_PASS jobs={len(jobs)}")
           PY
 
-      - name: Render clip 01 with proven FFmpeg renderer
-        working-directory: render-jobs/01
+      - name: Render all clips with proven FFmpeg renderer
         run: |
           set -euo pipefail
-          python "${{ github.workspace }}/.github/scripts/phase7-render-clips.py"
-          test -s output/clip_01.mp4
-          cp output/clip_01.mp4 "${{ github.workspace }}/final-clip-01.mp4"
-
-      - name: Render clip 02 with proven FFmpeg renderer
-        working-directory: render-jobs/02
-        run: |
-          set -euo pipefail
-          python "${{ github.workspace }}/.github/scripts/phase7-render-clips.py"
-          test -s output/clip_01.mp4
-          cp output/clip_01.mp4 "${{ github.workspace }}/final-clip-02.mp4"
+          mkdir -p final-output
+          rank=0
+          for job in render-jobs/*; do
+            [ -d "$job" ] || continue
+            rank=$((rank+1))
+            (
+              cd "$job"
+              python "${{ github.workspace }}/.github/scripts/phase7-render-clips.py"
+            )
+            test -s "$job/output/clip_01.mp4"
+            cp "$job/output/clip_01.mp4" "final-output/clip_$(printf '%02d' "$rank").mp4"
+          done
+          test "$rank" -ge 1
+          echo "Rendered clips: $rank"
 
       - name: Production video quality gate
         run: |
@@ -174,8 +179,8 @@ jobs:
           from pathlib import Path
 
           files=sorted(Path("final-output").glob("clip_*.mp4"))
-          if len(files) != 2:
-              raise SystemExit(f"Expected 2 final clips, found {len(files)}")
+          if len(files) < 1:
+              raise SystemExit("Expected at least one final clip")
 
           report=[]
           for f in files:
