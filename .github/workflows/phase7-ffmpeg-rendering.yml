@@ -214,8 +214,9 @@ jobs:
                   raise SystemExit(f"{f.name}: not 1080x1920")
               if item["bitrate"] < 500000:
                   raise SystemExit(f"{f.name}: bitrate below 500kbps")
-              if not audio:
-                  raise SystemExit(f"{f.name}: original audio stream missing")
+              require_audio=bool(json.loads(Path("phase6-source/phase6-clip-plan-manifest.json").read_text()).get("renderDirectives",{}).get("originalAudioMustRemainAudible",False))
+              if require_audio and not audio:
+                  raise SystemExit(f"{f.name}: campaign requires original audio stream")
 
           Path("quality_report.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
           print(json.dumps(report,indent=2))
