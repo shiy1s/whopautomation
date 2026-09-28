@@ -79,13 +79,27 @@ async function genericBrowserDiscover(url,options={}){
   return [...found.values()];
 }
 
-async function downloadBrowserCandidate(candidate,target){
+async function downloadBrowserCandidate(candidate,target,requestContext,referer){
   const u=String(candidate?.url||candidate||'');
   if(/\.(m3u8|mpd)(?:[?#]|$)/i.test(u)){
-    cp.execFileSync('ffmpeg',['-y','-i',u,'-c','copy',target],{stdio:'ignore'});
+    let headers='';
+    try{
+      const cookies=await requestContext.storageState();
+      const cookie=(cookies.cookies||[]).map(c=>c.name+'='+c.value).join('; ');
+      if(cookie)headers+='Cookie: '+cookie+'\\r\\n';
+      if(referer)headers+='Referer: '+referer+'\\r\\n';
+    }catch{}
+    const args=['-y'];
+    if(headers)args.push('-headers',headers);
+    args.push('-i',u,'-c','copy',target);
+    cp.execFileSync('ffmpeg',args,{stdio:'ignore'});
     return;
   }
-  await download(u,target);
+  const response=await requestContext.get(u,{timeout:60000,headers:{Referer:referer||'https://www.google.com/',Accept:'*/*'}});
+  if(!response.ok())throw new Error('HTTP '+response.status());
+  const body=await response.body();
+  if(body.length<100000)throw new Error('response too small');
+  fs.writeFileSync(target,body);
 }
 
 async function collectSource(type,url,tmp){
@@ -218,7 +232,7 @@ async function collectSource(type,url,tmp){
           for(const item of nested) out.push({...item,sourceUrl:item.sourceUrl||url,sourceAdapter:'ChromiumPlaywrightFallback'});
         }else{
           const p=path.join(tmp,'browser_fallback_'+Date.now()+'_'+out.length+(/\.(m3u8|mpd)(?:[?#]|$)/i.test(c.url)?'.mp4':'.bin'));
-          await downloadBrowserCandidate(c,p);
+          await downloadBrowserCandidate(c,p,ctx.request,url);
           if(probe(p).valid)out.push({file:p,sourceUrl:url,discoveredMediaUrl:c.url,sourceAdapter:'ChromiumPlaywrightFallback'});
           else if(fs.existsSync(p))fs.unlinkSync(p);
         }
