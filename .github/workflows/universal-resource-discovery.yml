@@ -28,7 +28,7 @@ jobs:
         with:
           node-version: 24
       - name: Run universal resource discovery
-        run: node .github/scripts/resource-discovery-worker.js
+        run: node .github/scripts/resource-discovery-worker.js 2>&1 | tee resource-discovery.log
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -40,6 +40,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: resource-discovery-${{ inputs.campaign_id }}
-          path: resource-discovery-artifact
+          path: |
+            resource-discovery-artifact
+            resource-discovery.log
           if-no-files-found: warn
           retention-days: 7
