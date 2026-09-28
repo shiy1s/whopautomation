@@ -95,6 +95,7 @@ async function downloadBrowserCandidate(candidate,target,requestContext,referer)
     cp.execFileSync('ffmpeg',args,{stdio:'ignore'});
     return;
   }
+  if(!requestContext){await download(u,target);return;}
   const response=await requestContext.get(u,{timeout:60000,headers:{Referer:referer||'https://www.google.com/',Accept:'*/*'}});
   if(!response.ok())throw new Error('HTTP '+response.status());
   const body=await response.body();
@@ -232,7 +233,7 @@ async function collectSource(type,url,tmp){
           for(const item of nested) out.push({...item,sourceUrl:item.sourceUrl||url,sourceAdapter:'ChromiumPlaywrightFallback'});
         }else{
           const p=path.join(tmp,'browser_fallback_'+Date.now()+'_'+out.length+(/\.(m3u8|mpd)(?:[?#]|$)/i.test(c.url)?'.mp4':'.bin'));
-          await downloadBrowserCandidate(c,p,ctx.request,url);
+          await downloadBrowserCandidate(c,p,null,url);
           if(probe(p).valid)out.push({file:p,sourceUrl:url,discoveredMediaUrl:c.url,sourceAdapter:'ChromiumPlaywrightFallback'});
           else if(fs.existsSync(p))fs.unlinkSync(p);
         }
