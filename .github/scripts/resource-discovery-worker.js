@@ -29,11 +29,29 @@ function classify(url) {
 
 function normalizeUrl(raw, baseUrl) {
   if (!raw) return null;
-  let s = String(raw).trim().replace(/&amp;/gi, '&').replace(/^['"]|['"]$/g, '');
+  let s = String(raw).trim().replace(/&amp;/gi, '&').replace(/^['\"]|['\"]$/g, '');
   if (!s || s.startsWith('#') || /^(javascript|mailto|tel):/i.test(s)) return null;
   try {
-    const u = new URL(s, baseUrl);
+    let u = new URL(s, baseUrl);
+
+    // Google Docs/Sheets often expose links through google.com/url redirects.
+    // Unwrap the destination before classification so the real source type is preserved.
+    if (/^www\.google\.com$/i.test(u.hostname) && u.pathname === '/url' && u.searchParams.get('q')) {
+      s = u.searchParams.get('q');
+      u = new URL(s, baseUrl);
+    }
+
     if (!/^https?:$/i.test(u.protocol)) return null;
+
+    // Google Sheets CSV exports can append cell data after a URL, e.g.
+    // ".../view?usp=sharing,,6". Canonicalize Drive links from their stable IDs.
+    if (/^drive\.google\.com$/i.test(u.hostname)) {
+      const file = u.pathname.match(/^\/file\/d\/([^/]+)/i);
+      const folder = u.pathname.match(/^\/drive\/folders\/([^/]+)/i);
+      if (file) return 'https://drive.google.com/file/d/' + file[1] + '/view';
+      if (folder) return 'https://drive.google.com/drive/folders/' + folder[1];
+    }
+
     u.hash = '';
     return u.href;
   } catch { return null; }
