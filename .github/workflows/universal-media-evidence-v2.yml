@@ -1,4 +1,4 @@
-name: Universal Media Evidence Worker V2
+name: Universal Media Evidence Worker V2 — Adaptive Assets
 
 on:
   workflow_dispatch:
@@ -51,7 +51,7 @@ jobs:
           INPUT_SOURCE_URLS: ${{ inputs.source_urls }}
           INPUT_CAMPAIGN_ID: ${{ inputs.campaign_id }}
       - name: Validate artifact
-        run: node -e "const fs=require('fs');const p='phase4-input/phase4-input-manifest.json';if(!fs.existsSync(p))throw new Error('Manifest missing');const m=JSON.parse(fs.readFileSync(p));if(m.complete!==true||m.videoAssetCount!==2||m.frameCount!==24)throw new Error('Universal Phase 4 validation failed');console.log('PHASE4_ARTIFACT_VALIDATION_PASS')"
+        run: node -e "const fs=require('fs');const p='phase4-input/phase4-input-manifest.json';if(!fs.existsSync(p))throw new Error('Manifest missing');const m=JSON.parse(fs.readFileSync(p));if(m.complete!==true||Number(m.videoAssetCount)<1||Number(m.frameCount)<1||m.frameCount!==m.results.reduce((n,x)=>n+Number(x.frameCount||0),0))throw new Error('Universal Phase 4 validation failed');console.log('PHASE4_ARTIFACT_VALIDATION_PASS')"
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
