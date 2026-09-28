@@ -174,9 +174,6 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p final-output
-          mv final-clip-01.mp4 final-output/clip_01.mp4
-          mv final-clip-02.mp4 final-output/clip_02.mp4
-
           python - <<'PY'
           import json, subprocess
           from pathlib import Path
