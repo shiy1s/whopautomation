@@ -86,7 +86,7 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
   if (!requiredAssetIds.length) throw new Error("PHASE6_REQUIRED_ASSET_IDS_MISSING");
   const requiredAssetCount = requiredAssetIds.length;
 
-  const normalizedTypes=['mediasilo','googledrive','googledrivefile','dropbox','directfile','youtube','nextframe'];
+  const normalizedTypes=['mediasilo','googledrive','googledrivefile','dropbox','wetransfer','directfile','youtube','nextframe','website','browserfallback'];
   if (normalizedTypes.includes(sourceType)) {
     console.log('=== Starting normalized Phase 7 source adapter: '+sourceType+' ===');
     if (!sourceUrl) throw new Error('NORMALIZED_SOURCE_URL_MISSING');
