@@ -43,7 +43,7 @@ def manifest():
  if not m.get("complete") or m.get("status")!="ready_for_platform_publishing": die("Phase 10 package is not ready")
  if not m.get("publishingPolicy",{}).get("phase10DoesNotPublish"): die("Phase 10 policy invalid")
  if not m.get("publishingPolicy",{}).get("duplicatePostingForbidden"): die("duplicate-posting policy missing")
- if len(m.get("clips",[]))!=2: die("Phase 10 must contain exactly 2 clips")
+ if len(m.get("clips",[]))<1: die("Phase 10 package contains no clips")
  for c in m["clips"]:
   p=ROOT/"videos"/c["file"]
   if not p.exists() or sha(p)!=c["sha256"]: die(f"video missing/checksum mismatch: {c['file']}")
@@ -190,7 +190,7 @@ def main():
    youtube_preflight()
   if "instagram" in PLATFORMS:
    instagram_preflight()
-  print(json.dumps({"preflight":"pass","platforms":PLATFORMS,"clipCount":2,"phase9RunId":m["phase9RunId"]})); return
+  print(json.dumps({"preflight":"pass","platforms":PLATFORMS,"clipCount":len(m.get("clips",[])),"phase9RunId":m["phase9RunId"]})); return
  confirm=os.getenv("CONFIRM_PUBLISH","").strip()
  if confirm.lower()=="test":
   print(json.dumps({"dryRun":"pass","platforms":PLATFORMS,"clipCount":2,"phase9RunId":m["phase9RunId"],"publishingSkipped":True})); return
