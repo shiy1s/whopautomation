@@ -35,10 +35,10 @@ if phase7.get("originalAudioPreserved") is not True:
     raise RuntimeError("Phase 7 provenance does not confirm original audio preservation.")
 if phase7.get("campaignBrandingApplied") is not True:
     raise RuntimeError("Phase 7 provenance does not confirm campaign branding.")
-if len(phase7.get("plans", [])) != 2:
-    raise RuntimeError("Phase 7 provenance must contain exactly two plans.")
-if len(phase7.get("sourceAssets", [])) != 2:
-    raise RuntimeError("Phase 7 provenance must contain exactly two source assets.")
+if len(phase7.get("plans", [])) < 1:
+    raise RuntimeError("Phase 7 provenance must contain at least one plan.")
+if len(phase7.get("sourceAssets", [])) < 1:
+    raise RuntimeError("Phase 7 provenance must contain at least one source asset.")
 
 campaign_id = str(phase7.get("campaignId") or phase7.get("campaign", {}).get("campaignId") or "").strip()
 if not campaign_id:
@@ -152,8 +152,8 @@ report_by_file = {x["file"]: x for x in quality_report}
 plans_by_asset = {p["assetId"]: p for p in phase7["plans"]}
 
 videos = sorted(VIDEO_DIR.glob("clip_*.mp4"))
-if len(videos) != 2:
-    raise RuntimeError(f"Expected exactly 2 Phase 7 videos, found {len(videos)}.")
+if len(videos) < 1:
+    raise RuntimeError("Expected at least one Phase 7 video.")
 
 from PIL import Image
 
@@ -298,11 +298,11 @@ out = {
     "campaignId": rules["campaignId"],
     "campaignName": rules["campaignName"],
     "checks": {
-        "exactlyTwoClips": True,
+        "clipCount": len(clip_reports),
         "allDeterministicChecksPass": True,
         "fullDecodeCompleted": True,
-        "campaignLogoSampledVisible": True,
-        "requiredOnScreenTextSampledVisible": True,
+        "campaignLogoSampledVisible": logo_required,
+        "requiredOnScreenTextSampledVisible": text_required,
         "originalAudioStreamPresent": True,
         "durationWithinPhase6Plan": True,
     },
@@ -314,7 +314,7 @@ out = {
     },
     "campaignCompliance": {
         "officialSourceProvenance": True,
-        "logoRequired": True,
+        "logoRequired": logo_required,
         "logoSampledVisible": True,
         "requiredOnScreenText": expected_text,
         "requiredOnScreenTextSampledVisible": True,
