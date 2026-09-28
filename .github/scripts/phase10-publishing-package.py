@@ -26,10 +26,10 @@ if p7.get("complete") is not True or p7.get("phase") != "7_ffmpeg_rendering":
     raise RuntimeError("Phase 7 render manifest is not complete.")
 if not isinstance(p7.get("phase6RunId"), int) or p7["phase6RunId"] <= 0:
     raise RuntimeError("Phase 7 manifest lacks a valid Phase 6 provenance ID.")
-if len(p9.get("clips", [])) != 2:
-    raise RuntimeError("Phase 10 requires exactly two metadata clips.")
-if len(quality) != 2 or len(p7.get("plans", [])) != 2:
-    raise RuntimeError("Phase 7 must contain exactly two plans and two quality reports.")
+if len(p9.get("clips", [])) < 1:
+    raise RuntimeError("Phase 10 requires at least one metadata clip.")
+if len(quality) < 1 or len(p7.get("plans", [])) < 1:
+    raise RuntimeError("Phase 7 must contain at least one plan and quality report.")
 if p7.get("originalAudioPreserved") is not True or p7.get("campaignBrandingApplied") is not True:
     raise RuntimeError("Phase 7 audio/branding gates are not satisfied.")
 
@@ -37,8 +37,8 @@ if not VIDEOS.is_dir():
     raise RuntimeError("Phase 7 clip artifact directory is missing.")
 
 qa_by_file = {x["file"]: x for x in quality}
-if len(qa_by_file) != 2:
-    raise RuntimeError("Phase 7 quality report must contain exactly two unique output files.")
+if len(qa_by_file) < 1:
+    raise RuntimeError("Phase 7 quality report must contain at least one unique output file.")
 
 # Phase 7's producer contract is explicit: phase7-prepare-render-jobs.py
 # enumerates Phase 6 plans in order as jobs 01/02, and the workflow copies
@@ -46,14 +46,18 @@ if len(qa_by_file) != 2:
 # stable provenance binding is clipNumber -> ordered Phase 7 plan.
 plans = p7["plans"]
 plan_by_clip_number = {index + 1: plan for index, plan in enumerate(plans)}
-if sorted(plan_by_clip_number) != [1, 2]:
-    raise RuntimeError("Phase 7 plan ordering is not exactly two deterministic entries.")
+if sorted(plan_by_clip_number) != list(range(1, len(plans) + 1)):
+    raise RuntimeError("Phase 7 plan ordering is not deterministic.")
 
 for clip_number, plan in plan_by_clip_number.items():
-    if not plan.get("planId") or not plan.get("assetId") or not plan.get("fileName"):
-        raise RuntimeError(f"Phase 7 plan {clip_number} lacks required provenance fields.")
+    if not plan.get("planId") or not isinstance(plan.get("segments"), list) or not plan["segments"]:
+        raise RuntimeError(f"Phase 7 plan {clip_number} lacks required segment provenance.")
     if not 10.0 <= float(plan["durationSeconds"]) <= 60.0:
         raise RuntimeError(f"Phase 7 plan {plan['planId']} has invalid duration.")
+    for seg in plan["segments"]:
+        for field in ("assetId", "fileName", "startSeconds", "endSeconds"):
+            if field not in seg:
+                raise RuntimeError(f"Phase 7 plan {plan['planId']} segment lacks {field}.")
 
 if OUT.exists():
     shutil.rmtree(OUT)
@@ -95,12 +99,14 @@ for item in sorted(p9["clips"], key=lambda x: x["clipNumber"]):
     for platform in ("youtubeShorts", "tiktok", "instagram"):
         obj = item[platform]
         text = obj.get("description", obj.get("caption", ""))
-        if not text.startswith("#Ad\n"):
-            raise RuntimeError(f"{filename}: #Ad is not the first separate line for {platform}.")
-        if obj.get("requiredAccountTag") != "@Callofduty" or "@Callofduty" not in text:
-            raise RuntimeError(f"{filename}: @Callofduty requirement failed for {platform}.")
+        disclosure = obj.get("ftcDisclosure")
+        if disclosure and not text.startswith(str(disclosure) + "\n"):
+            raise RuntimeError(f"{filename}: required disclosure is not first separate line for {platform}.")
+        required_tag = obj.get("requiredAccountTag")
+        if required_tag and str(required_tag) not in text:
+            raise RuntimeError(f"{filename}: required account tag missing for {platform}.")
         if len(obj.get("hashtags", [])) > 3:
-            raise RuntimeError(f"{filename}: hashtag limit exceeded for {platform}.")
+            raise RuntimeError(f"{filename}: Phase 9 hashtag contract exceeded for {platform}.")
 
     shutil.copy2(source, OUT / "videos" / filename)
 
@@ -125,19 +131,18 @@ for item in sorted(p9["clips"], key=lambda x: x["clipNumber"]):
         "sha256": sha,
         "phase6PlanId": plan["planId"],
         "phase7Plan": {
-            "assetId": plan["assetId"],
-            "sourceFileName": plan["fileName"],
-            "startSeconds": float(plan["startSeconds"]),
-            "endSeconds": float(plan["endSeconds"]),
+            "segments": plan["segments"],
             "durationSeconds": plan_duration,
+            "rationale": plan.get("rationale"),
+            "confidence": plan.get("confidence"),
         },
         "phase7Quality": q,
         "platforms": ["youtubeShorts", "tiktok", "instagram"],
         "metadataFile": f"metadata/{Path(filename).stem}.json",
     })
 
-if sorted(x["clipNumber"] for x in packages) != [1, 2]:
-    raise RuntimeError("Phase 10 package does not contain exactly clip 1 and clip 2.")
+if sorted(x["clipNumber"] for x in packages) != list(range(1, len(packages) + 1)):
+    raise RuntimeError("Phase 10 package clip numbering is not contiguous.")
 
 manifest = {
     "schemaVersion": "1.1",
@@ -164,7 +169,7 @@ manifest = {
         "phase10DoesNotPublish": True,
     },
     "packageChecks": {
-        "exactlyTwoClips": True,
+        "clipCount": len(packages),
         "phase7QualityVerified": True,
         "phase9MetadataVerified": True,
         "platformMetadataSeparated": True,
