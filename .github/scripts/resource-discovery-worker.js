@@ -185,6 +185,7 @@ async function writeResult(campaignId, result) {
   const visited = new Set();
   const resources = [];
   const mediaCandidates = [];
+  const fallbackCandidates = [];
   const failures = [];
 
   while (queue.length && resources.length < MAX_NODES) {
@@ -208,10 +209,16 @@ async function writeResult(campaignId, result) {
     if (transformed !== url) resource.fetchUrl = transformed;
 
     const likelyMedia = meta.role === 'media_source' || meta.role === 'direct_file';
+    const browserFallback = meta.type === 'Website';
     if (likelyMedia) {
       resource.status = 'MEDIA_CANDIDATE';
       resource.score = scoreResource(resource);
       mediaCandidates.push(resource);
+    } else if (browserFallback) {
+      resource.status = 'BROWSER_FALLBACK_CANDIDATE';
+      resource.fallback = 'chromium_playwright';
+      resource.score = scoreResource({...resource, role:'browser_fallback'});
+      fallbackCandidates.push(resource);
     }
 
     resources.push(resource);
@@ -266,17 +273,21 @@ async function writeResult(campaignId, result) {
   const ranked = [...new Map(mediaCandidates.map(x=>[x.url,x])).values()]
     .sort((a,b)=>Number(b.score||0)-Number(a.score||0));
 
+  const rankedFallback = [...new Map(fallbackCandidates.map(x=>[x.url,x])).values()]
+    .sort((a,b)=>Number(b.score||0)-Number(a.score||0));
+
   const graph = {
     schemaVersion:'1.0',
     campaignId,
     campaignUrl,
-    status:ranked.length ? 'MEDIA_SOURCE_DISCOVERED' : 'NO_MEDIA_SOURCE_DISCOVERED',
+    status:ranked.length ? 'MEDIA_SOURCE_DISCOVERED' : (rankedFallback.length ? 'BROWSER_FALLBACK_AVAILABLE' : 'NO_MEDIA_SOURCE_DISCOVERED'),
     maxDepth:MAX_DEPTH,
     visitedCount:visited.size,
     resourceCount:resources.length,
     resources,
     mediaCandidates:ranked,
-    primaryMediaSources:ranked.slice(0,20),
+    browserFallbackCandidates:rankedFallback.slice(0,20),
+    primaryMediaSources:[...ranked,...rankedFallback].slice(0,20),
     failures,
     createdAt:new Date().toISOString()
   };
@@ -292,7 +303,8 @@ async function writeResult(campaignId, result) {
     status:graph.status,
     resources:resources.length,
     mediaCandidates:ranked.length,
-    primaryMediaSources:ranked.slice(0,10).map(x=>({type:x.type,url:x.url,score:x.score,parent:x.parentResource})),
+    browserFallbackCandidates:rankedFallback.length,
+    primaryMediaSources:[...ranked,...rankedFallback].slice(0,10).map(x=>({type:x.type,url:x.url,score:x.score,fallback:x.fallback,parent:x.parentResource})),
     persistedPath:resultPath
   },null,2));
 })();
