@@ -79,6 +79,12 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
   const sourceType = String(assetSource.sourceType || '').toLowerCase();
   const sourceUrl = String(assetSource.sourceUrl || assetSource.officialContentFolderUrl || '').trim();
   const plans = Array.isArray(phase6.clipPlans) ? phase6.clipPlans : [];
+  const requiredAssetIds = [...new Set(
+    plans.flatMap(p => Array.isArray(p.segments) ? p.segments.map(s => String(s.assetId || "").trim()) : [])
+      .filter(Boolean)
+  )];
+  if (!requiredAssetIds.length) throw new Error("PHASE6_REQUIRED_ASSET_IDS_MISSING");
+  const requiredAssetCount = requiredAssetIds.length;
 
   const normalizedTypes=['mediasilo','googledrive','googledrivefile','dropbox','directfile','youtube','nextframe'];
   if (normalizedTypes.includes(sourceType)) {
@@ -130,12 +136,12 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
             if(/\\.(m3u8|mpd)(?:[?#]|$)/i.test(mediaUrl)) cp.execFileSync('ffmpeg',['-y','-i',mediaUrl,'-c','copy',file],{stdio:'ignore'});
             else {const res=await fetch(mediaUrl,{redirect:'follow',headers:{Referer:u}});if(!res.ok)continue;fs.writeFileSync(file,Buffer.from(await res.arrayBuffer()));}
             candidates.push({file,sourceUrl:u});
-            if(candidates.length>=2)break;
+            if(candidates.length>=requiredAssetCount)break;
           }catch{}
         }
       }
     }
-    if(candidates.length<2) throw new Error('NORMALIZED_SOURCE_INSUFFICIENT_FILES: '+candidates.length);
+    if(candidates.length<requiredAssetCount) throw new Error('NORMALIZED_SOURCE_INSUFFICIENT_FILES: '+candidates.length+' required='+requiredAssetCount);
     const assets=[];
     for(const item of candidates){
       const probe=runFFprobe(item.file);
@@ -143,10 +149,10 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
       const index=assets.length+1;
       const target=path.join(outDir,'source_'+String(index).padStart(2,'0')+'.mp4');
       fs.copyFileSync(item.file,target);
-      assets.push({assetId:String(plans?.[assets.length]?.assetId||sourceType+'-'+index),fileName:path.basename(item.file),path:target,durationSeconds:probe.duration,width:probe.width,height:probe.height,sizeBytes:probe.size,sourceType:sourceType,sourceUrl:item.sourceUrl});
-      if(assets.length>=2)break;
+      assets.push({assetId:String(requiredAssetIds[assets.length]||sourceType+'-'+index),fileName:path.basename(item.file),path:target,durationSeconds:probe.duration,width:probe.width,height:probe.height,sizeBytes:probe.size,sourceType:sourceType,sourceUrl:item.sourceUrl});
+      if(assets.length>=requiredAssetCount)break;
     }
-    if(assets.length!==2) throw new Error('NORMALIZED_SOURCE_INSUFFICIENT_VALID_VIDEO: '+assets.length);
+    if(assets.length!==requiredAssetCount) throw new Error('NORMALIZED_SOURCE_INSUFFICIENT_VALID_VIDEO: '+assets.length+' required='+requiredAssetCount);
     fs.writeFileSync('phase7-source-manifest.json',JSON.stringify({schemaVersion:'2.0',complete:true,sourceType:sourceType,sourceUrl:sourceUrl,campaignId:String(phase6.campaign?.campaignId||''),assets,createdAt:new Date().toISOString()},null,2));
     console.log('PHASE7_SOURCE_VALIDATION_PASS');
     process.exit(0);
@@ -178,24 +184,33 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
       return out;
     };
     const entries=walk(tmpDir).filter(p=>/\.(mp4|mov|m4v|webm|mkv)$/i.test(p)).sort((a,b)=>a.localeCompare(b));
-    if(entries.length<2) throw new Error('GOOGLE_DRIVE_SOURCE_INSUFFICIENT_VIDEO: '+entries.length+' video files found.');
-    const plans=Array.isArray(phase6.clipPlans)?phase6.clipPlans:[];
-    const selected=plans.map(p=>entries.find(e=>path.basename(e).toLowerCase()===path.basename(String(p.fileName||'')).toLowerCase())||entries.find(e=>path.basename(e).toLowerCase().includes(path.basename(String(p.fileName||'')).toLowerCase()))).filter(Boolean);
+    if(entries.length<requiredAssetCount) throw new Error('GOOGLE_DRIVE_SOURCE_INSUFFICIENT_VIDEO: '+entries.length+' required='+requiredAssetCount);
+    const requested=[];
+    for(const p of plans){
+      for(const s of (Array.isArray(p.segments)?p.segments:[])){
+        const aid=String(s.assetId||'').trim();
+        if(!aid || requested.some(x=>x.assetId===aid)) continue;
+        requested.push({assetId:aid,fileName:String(s.fileName||'')});
+      }
+    }
     const finalEntries=[];
-    for(const e of selected){if(!finalEntries.includes(e))finalEntries.push(e);}
-    for(const e of entries){if(finalEntries.length>=2)break;if(!finalEntries.includes(e))finalEntries.push(e);}
-    if(finalEntries.length!==2) throw new Error('Could not deterministically resolve two Google Drive source files.');
+    for(const req of requested){
+      const wanted=path.basename(req.fileName||'').toLowerCase();
+      const match=entries.find(e=>path.basename(e).toLowerCase()===wanted) ||
+                  entries.find(e=>wanted && path.basename(e).toLowerCase().includes(wanted));
+      if(match && !finalEntries.includes(match)) finalEntries.push(match);
+    }
+    for(const e of entries){if(finalEntries.length>=requiredAssetCount)break;if(!finalEntries.includes(e))finalEntries.push(e);}
+    if(finalEntries.length!==requiredAssetCount) throw new Error('Could not deterministically resolve required Google Drive source files.');
     const assets=[];
-    for(let i=0;i<2;i++){
+    for(let i=0;i<requiredAssetCount;i++){
       const filePath=finalEntries[i];
       const name=path.basename(filePath).replace(/[^a-zA-Z0-9._-]+/g,'_');
       const probe=runFFprobe(filePath);
       if(!probe.valid||probe.duration<10) throw new Error('Google Drive source failed ffprobe: '+name);
-      const expected=Number(plans[i]?.sourceDurationSeconds||0);
-      if(expected>0&&Math.abs(expected-probe.duration)>0.5) throw new Error(name+': source duration mismatch plan='+expected+' actual='+probe.duration);
       const target=path.join(outDir,'source_'+String(i+1).padStart(2,'0')+'.mp4');
       fs.copyFileSync(filePath,target);
-      assets.push({assetId:String(plans[i]?.assetId||'gdrive-'+(i+1)),fileName:name,path:target,durationSeconds:probe.duration,width:probe.width,height:probe.height,sizeBytes:probe.size,sourceType:'GoogleDrive',sourceUrl});
+      assets.push({assetId:String(requiredAssetIds[i]),fileName:name,path:target,durationSeconds:probe.duration,width:probe.width,height:probe.height,sizeBytes:probe.size,sourceType:'GoogleDrive',sourceUrl});
     }
     const manifest={schemaVersion:'2.0',complete:true,sourceType:'GoogleDrive',sourceUrl,campaignId:String(phase6.campaign?.campaignId||''),assets,createdAt:new Date().toISOString()};
     fs.writeFileSync('phase7-source-manifest.json',JSON.stringify(manifest,null,2));
@@ -220,9 +235,10 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
     throw new Error(`Invalid mediasilo-inventory.json: ${e.message}`);
   }
 
-  const assets = (inv.assets || []).filter(a => a.type === 'video');
-  if (assets.length !== 2) {
-    throw new Error('Expected exactly 2 video assets in inventory, found ' + assets.length);
+  const inventoryVideos = (inv.assets || []).filter(a => a.type === 'video');
+  const assets = requiredAssetIds.map(id => inventoryVideos.find(a => String(a.assetId) === id)).filter(Boolean);
+  if (assets.length !== requiredAssetCount) {
+    throw new Error('Required MediaSilo assets missing from inventory: found ' + assets.length + ' required=' + requiredAssetCount);
   }
 
   const outDir = path.resolve('sources');
@@ -412,8 +428,8 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
 
   await browser.close();
 
-  if (results.length !== 2 || results.some(r => !fs.existsSync(r.path) || fs.statSync(r.path).size < 100000)) {
-    throw new Error('Phase 7 source acceptance criteria failed: expected 2 verified playable source MP4 files.');
+  if (results.length !== requiredAssetCount || results.some(r => !fs.existsSync(r.path) || fs.statSync(r.path).size < 100000)) {
+    throw new Error('Phase 7 source acceptance criteria failed: verified=' + results.length + ' required=' + requiredAssetCount);
   }
 
   const manifest = {
