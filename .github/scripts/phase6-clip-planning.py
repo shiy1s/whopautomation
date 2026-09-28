@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import time
 
 MIN_DURATION = 10.0
 MAX_RENDER_DURATION = 60.0
@@ -23,48 +24,24 @@ def boundary_from_evidence(frames, first_idx, last_idx, duration):
     first = by_idx[first_idx]
     last_frame = by_idx[last_idx]
 
-    if first_idx > 1:
+    if first_idx > 1 and (first_idx - 1) in by_idx:
         prev = by_idx[first_idx - 1]
         start = round((float(prev["timestampSeconds"]) + float(first["timestampSeconds"])) / 2, 3)
-        start_basis = {
-            "method": "midpoint_between_previous_and_first_evidence_frame",
-            "previousFrameIndex": first_idx - 1,
-            "previousTimestampSeconds": float(prev["timestampSeconds"]),
-            "firstEvidenceFrameIndex": first_idx,
-            "firstEvidenceTimestampSeconds": float(first["timestampSeconds"]),
-        }
+        start_basis = {"method": "midpoint_between_previous_and_first_evidence_frame"}
     else:
         start = 0.0
-        start_basis = {
-            "method": "source_start_before_first_evidence_frame",
-            "firstEvidenceFrameIndex": first_idx,
-            "firstEvidenceTimestampSeconds": float(first["timestampSeconds"]),
-        }
+        start_basis = {"method": "source_start_before_first_evidence_frame"}
 
-    if last_idx < len(frames):
+    if last_idx < len(frames) and (last_idx + 1) in by_idx:
         nxt = by_idx[last_idx + 1]
         end = round((float(last_frame["timestampSeconds"]) + float(nxt["timestampSeconds"])) / 2, 3)
-        end_basis = {
-            "method": "midpoint_between_last_evidence_and_next_frame",
-            "lastEvidenceFrameIndex": last_idx,
-            "lastEvidenceTimestampSeconds": float(last_frame["timestampSeconds"]),
-            "nextFrameIndex": last_idx + 1,
-            "nextTimestampSeconds": float(nxt["timestampSeconds"]),
-        }
+        end_basis = {"method": "midpoint_between_last_evidence_and_next_frame"}
     else:
         end = round(float(duration), 3)
-        end_basis = {
-            "method": "source_end_after_last_evidence_frame",
-            "lastEvidenceFrameIndex": last_idx,
-            "lastEvidenceTimestampSeconds": float(last_frame["timestampSeconds"]),
-        }
+        end_basis = {"method": "source_end_after_last_evidence_frame"}
 
     start = max(0.0, min(start, float(duration)))
     end = max(start, min(end, float(duration)))
-
-    if end - start < MIN_DURATION:
-        raise ValueError(f"Boundary plan is shorter than {MIN_DURATION}s.")
-
     return start, end, start_basis, end_basis
 
 
@@ -72,113 +49,127 @@ def main():
     phase5 = load("phase5-source/phase5-selection-manifest.json")
     if phase5.get("complete") is not True:
         raise RuntimeError("Phase 5 manifest is not complete=true.")
-    if phase5.get("selectedCount") != 2 or len(phase5.get("selections", [])) != 2:
-        raise RuntimeError("Phase 5 must contain exactly two selections.")
+
+    selections = phase5.get("selections", [])
+    if not selections:
+        raise RuntimeError("Phase 5 returned no clip opportunities.")
 
     analyses_root = Path("phase4b-source/phase4-analysis")
     phase4_manifest = load(analyses_root / "phase4-analysis-manifest.json")
     if phase4_manifest.get("complete") is not True:
         raise RuntimeError("Phase 4B manifest is not complete=true.")
-    if phase4_manifest.get("analysis", {}).get("assetCount") != 2:
-        raise RuntimeError("Phase 4B asset count contract failed.")
-    if phase4_manifest.get("analysis", {}).get("frameCount") != 24:
-        raise RuntimeError("Phase 4B frame count contract failed.")
 
     analyses = {}
-    for entry in phase4_manifest["assets"]:
+    for entry in phase4_manifest.get("assets", []):
         data = load(analyses_root / entry["analysisFile"])
-        if len(data.get("frames", [])) != 12:
-            raise RuntimeError(f"Phase 4B analysis for {data.get('assetId')} must contain 12 frames.")
         analyses[data["assetId"]] = data
 
-    campaign_id = str(phase5.get("campaign", {}).get("campaignId") or "").strip()\n    if not campaign_id:\n        raise RuntimeError("Phase 5 manifest does not identify campaignId.")\n    rules = load(str(Path("campaign-rules") / f"{campaign_id}.json"))
+    if not analyses:
+        raise RuntimeError("No Phase 4B asset analyses available.")
+
+    campaign_id = str(phase5.get("campaign", {}).get("campaignId") or "").strip()
+    if not campaign_id:
+        raise RuntimeError("Phase 5 manifest does not identify campaignId.")
+    rules = load(str(Path("campaign-rules") / f"{campaign_id}.json"))
+    campaign_rules = rules["rules"]
+    campaign_min = max(MIN_DURATION, float(campaign_rules.get("video", {}).get("minimumDurationSeconds") or MIN_DURATION))
 
     plans = []
-    for selection in phase5["selections"]:
-        candidate = selection["selectedCandidate"]
-        aid = candidate["assetId"]
-        if aid not in analyses:
-            raise RuntimeError(f"No Phase 4B analysis for selected asset {aid}.")
+    for index, selection in enumerate(selections, 1):
+        raw_segments = selection.get("segments")
+        if not isinstance(raw_segments, list) or not raw_segments:
+            raise RuntimeError(f"Phase 5 clip opportunity {index} has no segments.")
 
-        analysis = analyses[aid]
-        frames = analysis["frames"]
-        first_idx = int(candidate["anchorFrameStart"])
-        last_idx = int(candidate["anchorFrameEnd"])
+        planned_segments = []
+        total = 0.0
+        seen_candidate_ids = set()
+        seen_asset_windows = {}
 
-        if first_idx < 1 or last_idx > len(frames) or first_idx > last_idx:
-            raise RuntimeError(f"Invalid evidence frame range for {candidate['candidateId']}.")
+        for seg in raw_segments:
+            aid = str(seg.get("assetId") or "").strip()
+            candidate_id = str(seg.get("candidateId") or "").strip()
+            if not aid or not candidate_id:
+                raise RuntimeError(f"Phase 5 clip opportunity {index} contains an invalid segment.")
+            if candidate_id in seen_candidate_ids:
+                raise RuntimeError(f"Duplicate candidate {candidate_id} inside clip opportunity {index}.")
+            seen_candidate_ids.add(candidate_id)
+            if aid not in analyses:
+                raise RuntimeError(f"No Phase 4B analysis for selected asset {aid}.")
 
-        start, end, start_basis, end_basis = boundary_from_evidence(
-            frames, first_idx, last_idx, float(analysis["durationSeconds"])
-        )
+            analysis = analyses[aid]
+            frames = analysis["frames"]
+            first_idx = int(seg["anchorFrameStart"])
+            last_idx = int(seg["anchorFrameEnd"])
+            if first_idx < 1 or last_idx > len(frames) or first_idx > last_idx:
+                raise RuntimeError(f"Invalid evidence frame range for {candidate_id}.")
 
-        # The proven Phase 7 renderer has a hard 60s quality-gate ceiling.
-        # Phase 6 must never emit a plan that the authoritative renderer will reject.
-        if end - start > MAX_RENDER_DURATION:
-            capped_end = round(start + MAX_RENDER_DURATION, 3)
-            end_basis = {
-                "method": "renderer_max_duration_cap",
-                "previousEndSeconds": end,
-                "maxRenderDurationSeconds": MAX_RENDER_DURATION,
-                "cappedEndSeconds": capped_end,
-                "underlyingEvidenceBasis": end_basis,
-            }
-            end = capped_end
-
-        # Phase 6 is allowed to refine the Phase 5 evidence window, but it must never
-        # extend beyond the source media or below the campaign minimum duration.
-        if start < candidate["startSeconds"] - 0.001 or end > candidate["endSeconds"] + 0.001:
-            raise RuntimeError(
-                f"Phase 6 boundary escaped Phase 5 evidence window for {candidate['candidateId']}."
+            start, end, start_basis, end_basis = boundary_from_evidence(
+                frames, first_idx, last_idx, float(analysis["durationSeconds"])
             )
 
-        planned = {
-            "planId": f"{aid[:8]}-P01",
-            "candidateId": candidate["candidateId"],
-            "assetId": aid,
-            "fileName": candidate["fileName"],
-            "sourceDurationSeconds": float(analysis["durationSeconds"]),
-            "startSeconds": start,
-            "endSeconds": end,
-            "durationSeconds": round(end - start, 3),
-            "anchorFrameStart": first_idx,
-            "anchorFrameEnd": last_idx,
-            "anchorTimestampStart": float(candidate["anchorTimestampStart"]),
-            "anchorTimestampEnd": float(candidate["anchorTimestampEnd"]),
-            "boundaryMethod": "sampled-evidence-midpoint",
-            "startBoundaryEvidence": start_basis,
-            "endBoundaryEvidence": end_basis,
-            "boundaryPrecision": "bounded_by_phase4b_sampled_frame_evidence",
-            "audioAnalyzed": False,
-            "safetyFlags": candidate.get("safetyFlags", []),
-            "renderDirectives": {
-                "originalAudioMustRemainAudible": rules["rules"]["audio"]["originalAudioMustRemainAudible"],
-                "logoRequired": rules["rules"]["branding"]["logoRequired"],
-                "logoMustRemainVisible": rules["rules"]["branding"]["logoMustRemainVisible"],
-                "onScreenTextRequired": rules["rules"]["onScreenText"]["required"],
-                "onScreenTextOptions": rules["rules"]["onScreenText"]["requiredLines"],
-                "minimumDurationSeconds": MIN_DURATION,
-                "maximumRenderDurationSeconds": MAX_RENDER_DURATION,
-            },
-            "phase7Note": "Renderer must use these planned boundaries as inputs; do not rewrite the proven FFmpeg renderer.",
-        }
-        plans.append(planned)
+            # Preserve the evidence-window contract: Phase 6 may refine only inside
+            # the Phase 5 candidate window.
+            candidate = next(
+                x for x in phase5.get("selections", [])
+                for x in x.get("segments", [])
+                if x.get("candidateId") == candidate_id
+            )
+            if start < float(candidate["startSeconds"]) - 0.001 or end > float(candidate["endSeconds"]) + 0.001:
+                raise RuntimeError(f"Phase 6 boundary escaped Phase 5 evidence window for {candidate_id}.")
 
-    if len(plans) != 2:
-        raise RuntimeError("Phase 6 must produce exactly two clip plans.")
-    if len({p["assetId"] for p in plans}) != 2:
-        raise RuntimeError("Phase 6 plans must cover two unique assets.")
+            for old_start, old_end in seen_asset_windows.get(aid, []):
+                if start < old_end - 0.001 and end > old_start + 0.001:
+                    raise RuntimeError(f"Overlapping source segments for asset {aid} in clip {index}.")
+            seen_asset_windows.setdefault(aid, []).append((start, end))
+
+            duration = max(0.0, end - start)
+            total += duration
+            planned_segments.append({
+                "candidateId": candidate_id,
+                "assetId": aid,
+                "fileName": str(seg.get("fileName") or analysis.get("fileName") or ""),
+                "role": str(seg.get("role") or "evidence_supported"),
+                "sourceDurationSeconds": float(analysis["durationSeconds"]),
+                "startSeconds": round(start, 3),
+                "endSeconds": round(end, 3),
+                "durationSeconds": round(duration, 3),
+                "anchorFrameStart": first_idx,
+                "anchorFrameEnd": last_idx,
+                "anchorTimestampStart": float(candidate["anchorTimestampStart"]),
+                "anchorTimestampEnd": float(candidate["anchorTimestampEnd"]),
+                "boundaryMethod": "sampled-evidence-midpoint",
+                "startBoundaryEvidence": start_basis,
+                "endBoundaryEvidence": end_basis,
+                "safetyFlags": candidate.get("safetyFlags", []),
+            })
+
+        if total < campaign_min:
+            raise RuntimeError(f"Clip {index} is below campaign minimum: {total}s < {campaign_min}s.")
+        if total > MAX_RENDER_DURATION:
+            raise RuntimeError(f"Clip {index} exceeds authoritative renderer ceiling: {total}s > {MAX_RENDER_DURATION}s.")
+        if any(x["safetyFlags"] for x in planned_segments):
+            raise RuntimeError(f"Clip {index} contains safety-flagged source evidence.")
+
+        plans.append({
+            "planId": str(selection.get("planId") or f"CLIP-{index:02d}"),
+            "clipNumber": index,
+            "segments": planned_segments,
+            "durationSeconds": round(total, 3),
+            "rationale": str(selection.get("rationale") or "").strip(),
+            "confidence": float(selection.get("confidence", 0)),
+        })
 
     output = {
-        "schemaVersion": "1.0",
+        "schemaVersion": "2.0",
         "phase": "6_clip_planning",
         "complete": True,
         "sourcePhase": {
             "phase": "5_clip_selection",
             "selectionManifest": "phase5-source/phase5-selection-manifest.json",
-            "selectedCount": 2,
+            "selectedCount": len(selections),
             "phase4bManifest": "phase4b-source/phase4-analysis/phase4-analysis-manifest.json",
-            "frameCount": 24,
+            "assetCount": len(analyses),
+            "frameCount": sum(len(a.get("frames", [])) for a in analyses.values()),
         },
         "campaign": {
             "campaignId": rules["campaignId"],
@@ -186,22 +177,25 @@ def main():
             "assetSource": rules.get("rules", {}).get("assetSource", {}),
         },
         "planningPolicy": {
-            "minimumDurationSeconds": MIN_DURATION,
+            "minimumDurationSeconds": campaign_min,
             "maximumRenderDurationSeconds": MAX_RENDER_DURATION,
             "boundaryMethod": "sampled-evidence-midpoint",
             "audioAnalyzed": False,
             "phase6DoesNotRender": True,
             "phase7RendererRemainsAuthoritative": True,
+            "singleAssetAndMultiAssetPlansAllowed": True,
+            "unusedAssetsAllowed": True,
+            "campaignRulesOverrideComposition": True,
         },
         "clipPlanCount": len(plans),
         "clipPlans": plans,
-        "createdAt": __import__("time").strftime("%Y-%m-%dT%H:%M:%SZ", __import__("time").gmtime()),
+        "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
     save(output, "phase6-clip-plan/phase6-clip-plan-manifest.json")
     save({"clipPlans": plans}, "phase6-clip-plan/render-plan.json")
     print("PHASE6_ARTIFACT_VALIDATION_PASS")
-    print(f"Clip plans: {len(plans)}")
+    print(f"Clip plans: {len(plans)} | assets available: {len(analyses)}")
 
 
 if __name__ == "__main__":
