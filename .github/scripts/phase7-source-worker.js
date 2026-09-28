@@ -78,6 +78,7 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
   const assetSource = phase6.campaign?.assetSource || {};
   const sourceType = String(assetSource.sourceType || '').toLowerCase();
   const sourceUrl = String(assetSource.sourceUrl || assetSource.officialContentFolderUrl || '').trim();
+  const plans = Array.isArray(phase6.clipPlans) ? phase6.clipPlans : [];
 
   const normalizedTypes=['mediasilo','googledrive','googledrivefile','dropbox','directfile','youtube','nextframe'];
   if (normalizedTypes.includes(sourceType)) {
