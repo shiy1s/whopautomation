@@ -33,6 +33,15 @@ if len(quality) < 1 or len(p7.get("plans", [])) < 1:
 if p7.get("originalAudioPreserved") is not True or p7.get("campaignBrandingApplied") is not True:
     raise RuntimeError("Phase 7 audio/branding gates are not satisfied.")
 
+campaign_id = str(p9.get("campaignId") or "").strip()
+if not campaign_id:
+    raise RuntimeError("Phase 9 package does not identify campaignId.")
+RULES_PATH = Path("campaign-rules") / f"{campaign_id}.json"
+if not RULES_PATH.is_file():
+    raise RuntimeError(f"Missing persisted campaign rules: {RULES_PATH}")
+rules_doc = json.loads(RULES_PATH.read_text(encoding="utf-8"))
+campaign_rules = rules_doc.get("rules", {})
+
 if not VIDEOS.is_dir():
     raise RuntimeError("Phase 7 clip artifact directory is missing.")
 
@@ -158,12 +167,12 @@ manifest = {
     "campaignName": p9["campaignName"],
     "publishingPolicy": {
         "platforms": ["YouTube Shorts", "TikTok", "Instagram"],
-        "postLiveMinimumDays": 30,
-        "visibleLikesRequired": True,
-        "paidBoostingForbidden": True,
-        "storyPostsForbidden": True,
-        "duplicatePostingForbidden": True,
-        "officialSourceOnly": True,
+        "postLiveMinimumDays": campaign_rules.get("publishing", {}).get("postLiveMinimumDays"),
+        "visibleLikesRequired": campaign_rules.get("publishing", {}).get("visibleLikesRequired"),
+        "paidBoostingForbidden": campaign_rules.get("publishing", {}).get("paidBoostingForbidden"),
+        "storyPostsForbidden": campaign_rules.get("publishing", {}).get("storyPostsForbidden"),
+        "duplicatePostingForbidden": campaign_rules.get("publishing", {}).get("duplicatePostingForbidden"),
+        "officialSourceOnly": campaign_rules.get("content", {}).get("officialFootageOnly"),
         "originalAudioPreserved": True,
         "campaignBrandingApplied": True,
         "phase10DoesNotPublish": True,
