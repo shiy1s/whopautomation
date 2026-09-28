@@ -133,15 +133,24 @@ async function writeResult(campaignId, result) {
     'User-Agent': 'WhopAutomationResourceDiscovery/1.0'
   };
   let sha = null;
-  const existing = await fetch(api, {headers});
-  if (existing.ok) {
-    const data = await existing.json();
-    sha = data.sha || null;
+  const existing = await fetch(api,{headers});
+  if(existing.ok){
+    const data=await existing.json();
+    sha=data.sha||null;
+  }else if(existing.status!==404){
+    const detail=await existing.text().catch(()=> '');
+    throw new Error(`RESOURCE_GRAPH_LOOKUP_FAILED: ${existing.status} ${detail.slice(0,500)}`);
   }
-  const body = {message:`resource-discovery: ${campaignId}`,content,...(sha ? {sha} : {})};
-  const put = await fetch(api,{method:'PUT',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify(body)});
-  if (!put.ok) throw new Error(`RESOURCE_GRAPH_PERSIST_FAILED: ${put.status} ${await put.text()}`);
-  return path;
+  const body={message:`resource-discovery: ${campaignId}`,content,...(sha?{sha}:{})};
+  let last='';
+  for(let attempt=1;attempt<=3;attempt++){
+    const put=await fetch(api,{method:'PUT',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(put.ok)return path;
+    last=`${put.status} ${(await put.text()).slice(0,800)}`;
+    if(![409,429,500,502,503,504].includes(put.status))break;
+    await sleep(1000*attempt);
+  }
+  throw new Error(`RESOURCE_GRAPH_PERSIST_FAILED: ${last}`);
 }
 
 (async () => {
@@ -254,11 +263,11 @@ async function writeResult(campaignId, result) {
     createdAt:new Date().toISOString()
   };
 
-  const resultPath = await writeResult(campaignId, graph);
+  // Always materialize the artifact before repository persistence so failed persistence is diagnosable.
   fs.mkdirSync('resource-discovery-artifact',{recursive:true});
   fs.writeFileSync('resource-discovery-artifact/resource-graph.json',JSON.stringify(graph,null,2));
   fs.writeFileSync('resource-discovery-artifact/media-sources.json',JSON.stringify(ranked,null,2));
-
+  const resultPath = await writeResult(campaignId, graph);
   console.log('RESOURCE_DISCOVERY_COMPLETE');
   console.log(JSON.stringify({
     campaignId,
