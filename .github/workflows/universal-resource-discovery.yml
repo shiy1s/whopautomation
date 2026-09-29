@@ -1,7 +1,13 @@
 name: Universal Resource Discovery
+run-name: ${{ inputs.orchestration_intent != '' && format('n8n:{0}', inputs.orchestration_intent) || github.workflow }}
 on:
   workflow_dispatch:
     inputs:
+      orchestration_intent:
+        description: "Optional durable orchestration identity"
+        required: false
+        default: ""
+        type: string
       campaign_id:
         description: "Campaign ID"
         required: true
@@ -32,6 +38,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          RESOURCE_DISCOVERY_ARTIFACT_ONLY: ${{ inputs.orchestration_intent != '' && '1' || '0' }}
           CAMPAIGN_ID: ${{ inputs.campaign_id }}
           CAMPAIGN_URL: ${{ inputs.campaign_url }}
           REFERENCE_URLS: ${{ inputs.reference_urls }}
@@ -44,4 +51,20 @@ jobs:
             resource-discovery-artifact
             resource-discovery.log
           if-no-files-found: warn
+          retention-days: 7
+
+      - name: Capture exact-run checkpoint proof
+        if: ${{ success() && inputs.orchestration_intent != '' }}
+        run: node .github/scripts/capture-orchestration-proof.cjs
+        env:
+          ORCHESTRATION_INTENT: ${{ inputs.orchestration_intent }}
+          CAMPAIGN_ID: ${{ inputs.campaign_id }}
+          PHASE: "discovery"
+      - name: Upload checkpoint proof
+        if: ${{ success() && inputs.orchestration_intent != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: orchestration-${{ inputs.orchestration_intent }}
+          path: orchestration-proof.json
+          if-no-files-found: error
           retention-days: 7

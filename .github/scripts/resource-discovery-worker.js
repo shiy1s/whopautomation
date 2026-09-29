@@ -296,7 +296,7 @@ async function writeResult(campaignId, result) {
   fs.mkdirSync('resource-discovery-artifact',{recursive:true});
   fs.writeFileSync('resource-discovery-artifact/resource-graph.json',JSON.stringify(graph,null,2));
   fs.writeFileSync('resource-discovery-artifact/media-sources.json',JSON.stringify(ranked,null,2));
-  const resultPath = await writeResult(campaignId, graph);
+  const resultPath = process.env.RESOURCE_DISCOVERY_ARTIFACT_ONLY === '1' ? null : await writeResult(campaignId, graph);
   console.log('RESOURCE_DISCOVERY_COMPLETE');
   console.log(JSON.stringify({
     campaignId,

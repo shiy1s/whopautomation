@@ -1,8 +1,14 @@
 name: Universal Media Evidence Worker V2 — Adaptive Assets
 
+run-name: ${{ inputs.orchestration_intent != '' && format('n8n:{0}', inputs.orchestration_intent) || github.workflow }}
 on:
   workflow_dispatch:
     inputs:
+      orchestration_intent:
+        description: "Optional durable orchestration identity"
+        required: false
+        default: ""
+        type: string
       source_type:
         description: "Normalized media source type"
         required: true
@@ -62,4 +68,20 @@ jobs:
             mediasilo-network.log
             mediasilo-debug.json
           if-no-files-found: warn
+          retention-days: 7
+
+      - name: Capture exact-run checkpoint proof
+        if: ${{ success() && inputs.orchestration_intent != '' }}
+        run: node .github/scripts/capture-orchestration-proof.cjs
+        env:
+          ORCHESTRATION_INTENT: ${{ inputs.orchestration_intent }}
+          CAMPAIGN_ID: ${{ inputs.campaign_id }}
+          PHASE: "4A"
+      - name: Upload checkpoint proof
+        if: ${{ success() && inputs.orchestration_intent != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: orchestration-${{ inputs.orchestration_intent }}
+          path: orchestration-proof.json
+          if-no-files-found: error
           retention-days: 7
