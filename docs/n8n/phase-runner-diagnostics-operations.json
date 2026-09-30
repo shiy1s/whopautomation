@@ -1,0 +1,12 @@
+{
+  "workflowId": "cL4ho6w6HOe8uyya",
+  "operations": [
+    {
+      "type": "updateNodeParameters",
+      "nodeName": "Validate GitHub Phase Success",
+      "parameters": {
+        "jsCode": "const r=$input.first().json||{};\nconst base=$('Select Dispatched GitHub Run').first().json||{};\nif(Number(r.id)!==Number(base.phaseRun?.id))throw new Error('GITHUB_PHASE_RUN_ID_MISMATCH');\nif(r.status!=='completed') throw new Error('GitHub phase did not complete.');\nconst common={...base,phaseRun:{...base.phaseRun,status:r.status,conclusion:r.conclusion,completedAt:r.updated_at||null},githubPhase:{phaseName:base.phaseName,workflowFile:base.workflowFile,runId:Number(r.id),runNumber:r.run_number,htmlUrl:r.html_url,status:r.status,conclusion:r.conclusion}};\nif(r.conclusion!=='success'){\n  if(String(base.phaseName||'').includes('Phase 4A')) return [{json:{...common,phase4aSourceCheck:{status:'BLOCKED',reason:'GITHUB_PHASE_RUN_'+String(r.conclusion||'UNKNOWN').toUpperCase(),checkpoint:'phase4a_run_unsuccessful',retryable:false,runId:Number(r.id),message:'Inspect this run and its adapter diagnostics before retrying; GitHub failure alone does not establish source unavailability.'}}}];\n  throw new Error(base.phaseName+' failed. Run '+r.id+' conclusion='+r.conclusion);\n}\nreturn [{json:common}];"
+      }
+    }
+  ]
+}
