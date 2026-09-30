@@ -134,7 +134,7 @@ async function collectSource(type,url,tmp){
           const safeName=path.basename(String(entry.path||('drive_'+i+'.mp4')));
           const p=path.join(dir,String(i).padStart(4,'0')+'_'+safeName);
           try{
-            cp.execFileSync('gdown',['--continue','--retries','3',String(entry.url),'-O',p],{stdio:'inherit'});
+            cp.execFileSync('gdown',['--continue','--retries','2','--timeout','120',String(entry.url),'-O',p],{stdio:'inherit',timeout:150000});
             if(fs.existsSync(p)&&probe(p).valid) out.push({file:p,sourceUrl:url});
             else if(fs.existsSync(p)) fs.unlinkSync(p);
           }catch(e){
@@ -152,7 +152,7 @@ async function collectSource(type,url,tmp){
     // for a real video response if direct download is quota-blocked.
     try{
       const p=path.join(dir,'source');
-      cp.execFileSync('gdown',['--continue','--retries','3',url,'-O',p],{stdio:'inherit'});
+      cp.execFileSync('gdown',['--continue','--retries','2','--timeout','120',url,'-O',p],{stdio:'inherit',timeout:150000});
       if(fs.existsSync(p)) out.push({file:p,sourceUrl:url});
     }catch(e){
       console.warn('Google Drive direct download unavailable:',url,e.message);
