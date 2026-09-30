@@ -262,26 +262,50 @@ async function collectSource(type,url,tmp){
   return out;
 }
 (async()=>{const defaultType=String(process.env.INPUT_SOURCE_TYPE||'').trim();let rawSources=[];try{rawSources=JSON.parse(process.env.INPUT_SOURCE_URLS||'[]')}catch{};const campaignId=String(process.env.INPUT_CAMPAIGN_ID||'').trim();const supported=['MediaSilo','GoogleDrive','GoogleDriveFile','Dropbox','WeTransfer','DirectFile','YouTube','NextFrame','Website','BrowserFallback'];const sources=rawSources.map(x=>{if(x&&typeof x==='object')return{type:String(x.type||defaultType).trim(),url:String(x.url||'').trim()};return{type:defaultType,url:String(x||'').trim()};}).filter(x=>x.type&&x.url);if(!campaignId||!sources.length)throw new Error('SOURCE_INPUT_INCOMPLETE');for(const s of sources){if(!supported.includes(s.type))console.warn('Unknown normalized source type; routing to Chromium fallback:',s.type);}fs.rmSync('phase4-input',{recursive:true,force:true});fs.rmSync('.tmp-media',{recursive:true,force:true});fs.mkdirSync('phase4-input',{recursive:true});fs.mkdirSync('.tmp-media',{recursive:true});const candidates=[];const verified=[];let googleDriveBrowserFallbacks=0;
-const hasExplicitGoogleDriveFiles=sources.some(s=>String(s.type).toLowerCase()==='googledrivefile');
+const hasExplicitGoogleDriveFiles=sources.some(s=>{const t=String(s.type).toLowerCase(),u=String(s.url||'');return t==='googledrivefile'||(t==='googledrive'&&/drive\.google\.com\/file\//i.test(u));});
 const orderedSources=[...sources].sort((a,b)=>{
   const af=String(a.type).toLowerCase()==='googledrivefile'?0:1;
   const bf=String(b.type).toLowerCase()==='googledrivefile'?0:1;
   return af-bf;
 });
-for(const s of orderedSources){try{
+const processSource=async s=>{
   const isDriveFolder=String(s.type).toLowerCase()==='googledrive'&&s.url.toLowerCase().includes('/drive/folders/');
   if(isDriveFolder&&hasExplicitGoogleDriveFiles){
     console.log('Skipping redundant Google Drive folder because explicit Drive file resources are available.');
-    continue;
+    return {discovered:[],verified:[]};
   }
-  if(String(s.type).toLowerCase()==='googledrive'&&!s.url.toLowerCase().includes('/drive/folders/')&&googleDriveBrowserFallbacks>=6){console.warn('Google Drive browser fallback cap reached; checkpointing remaining blocked files.');continue;}
-  const before=candidates.length;const adapterType=supported.includes(s.type)?s.type:'BrowserFallback';
-let discovered=await collectSource(adapterType,s.url,'.tmp-media');
-if(!discovered.length&&adapterType!=='BrowserFallback'&&!(String(adapterType).toLowerCase()==='googledrive'&&s.url.toLowerCase().includes('/drive/folders/'))){
-  console.warn('Primary adapter produced no media; invoking Chromium/Playwright fallback:',s.type,s.url);
-  try{discovered=await collectSource('BrowserFallback',s.url,'.tmp-media');}catch(fallbackError){console.warn('Chromium/Playwright fallback failed:',s.url,fallbackError.message);}
+  const adapterType=supported.includes(s.type)?s.type:'BrowserFallback';
+  let discovered=[];
+  try{
+    discovered=await collectSource(adapterType,s.url,'.tmp-media');
+    if(!discovered.length&&adapterType!=='BrowserFallback'&&!(String(adapterType).toLowerCase()==='googledrive'&&isDriveFolder)){
+      console.warn('Primary adapter produced no media; invoking Chromium/Playwright fallback:',s.type,s.url);
+      try{discovered=await collectSource('BrowserFallback',s.url,'.tmp-media');}
+      catch(fallbackError){console.warn('Chromium/Playwright fallback failed:',s.url,fallbackError.message);}
+    }
+  }catch(e){
+    console.warn('source failed',s.type,s.url,e.message);
+    if(s.type!=='BrowserFallback'){
+      try{discovered=await collectSource('BrowserFallback',s.url,'.tmp-media');}
+      catch(fallbackError){console.warn('Chromium/Playwright fallback after adapter error failed:',s.url,fallbackError.message);}
+    }
+  }
+  const typedDiscovered=discovered.map(x=>({...x,sourceType:x.sourceAdapter||s.type}));
+  const valid=discovered.map(candidate=>{const p=probe(candidate.file);return p.valid?{...candidate,sourceType:candidate.sourceType||s.type,probe:p}:null;}).filter(Boolean);
+  return {discovered:typedDiscovered,verified:valid};
+};
+const concurrency=4;
+let cursor=0;
+while(cursor<orderedSources.length&&verified.length<1000){
+  const batch=orderedSources.slice(cursor,cursor+concurrency);
+  cursor+=batch.length;
+  const resultsBatch=await Promise.all(batch.map(processSource));
+  for(const r of resultsBatch){
+    candidates.push(...r.discovered);
+    for(const v of r.verified){verified.push(v);if(verified.length>=1000)break;}
+  }
 }
-const typedDiscovered=discovered.map(x=>({...x,sourceType:x.sourceAdapter||s.type}));candidates.push(...typedDiscovered);if(String(s.type).toLowerCase()==='googledrive'&&!s.url.toLowerCase().includes('/drive/folders/')&&candidates.length===before)googleDriveBrowserFallbacks++;for(const candidate of discovered){const p=probe(candidate.file);if(p.valid)verified.push({...candidate,sourceType:candidate.sourceType||s.type,probe:p});if(verified.length>=1000)break;}if(verified.length>=1000)break;}catch(e){console.warn('source failed',s.type,s.url,e.message);if(s.type!=='BrowserFallback'){try{const fallback=await collectSource('BrowserFallback',s.url,'.tmp-media');for(const candidate of fallback){const p=probe(candidate.file);if(p.valid)verified.push({...candidate,sourceType:'ChromiumPlaywrightFallback',probe:p});if(verified.length>=1000)break;}}catch(fallbackError){console.warn('Chromium/Playwright fallback after adapter error failed:',s.url,fallbackError.message);}}}}
+
 if(verified.length<1)throw new Error('SOURCE_MEDIA_INSUFFICIENT_VALID_VIDEO: '+verified.length);const results=[];
 const crypto=require('crypto');
 const seenAssets=new Set();
