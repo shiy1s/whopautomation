@@ -126,7 +126,7 @@ async function collectSource(type,url,tmp){
       try{
         const listing=JSON.parse(cp.execFileSync('gdown',[url,'--folder','--json','--quiet'],{encoding:'utf8',maxBuffer:8*1024*1024}));
         const mediaEntries=Array.isArray(listing)
-          ? listing.filter(x=>mediaExt.test(String(x?.path||'')))
+          ? listing.filter(x=>/^https?:\/\/drive\.google\.com\//i.test(String(x?.url||'')) && mediaExt.test(String(x?.path||'')))
           : [];
         console.log('Google Drive folder media entries:',mediaEntries.length,'of',Array.isArray(listing)?listing.length:0);
         for(let i=0;i<mediaEntries.length;i++){
@@ -294,15 +294,16 @@ const processSource=async s=>{
   const valid=discovered.map(candidate=>{const p=probe(candidate.file);return p.valid?{...candidate,sourceType:candidate.sourceType||s.type,probe:p}:null;}).filter(Boolean);
   return {discovered:typedDiscovered,verified:valid};
 };
+const targetAssets=Math.max(1,Math.min(2,Number(process.env.INPUT_MAX_ASSETS||2)));
 const concurrency=4;
 let cursor=0;
-while(cursor<orderedSources.length&&verified.length<1000){
+while(cursor<orderedSources.length&&verified.length<targetAssets){
   const batch=orderedSources.slice(cursor,cursor+concurrency);
   cursor+=batch.length;
   const resultsBatch=await Promise.all(batch.map(processSource));
   for(const r of resultsBatch){
     candidates.push(...r.discovered);
-    for(const v of r.verified){verified.push(v);if(verified.length>=1000)break;}
+    for(const v of r.verified){verified.push(v);if(verified.length>=targetAssets)break;}
   }
 }
 
