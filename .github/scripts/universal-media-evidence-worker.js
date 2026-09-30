@@ -118,20 +118,33 @@ async function collectSource(type,url,tmp){
     const dir=path.join(tmp,'gdrive_'+Date.now());
     fs.mkdirSync(dir,{recursive:true});
 
-    // Folder links: use gdown because it can enumerate the folder. A quota
-    // failure is non-fatal; individual file URLs discovered from the campaign
-    // are still attempted by the caller.
+    // Folder links: enumerate first, then download only entries whose
+    // reported Drive filename is a real media file. Do not crawl the folder
+    // page as a generic website: Drive folders can contain shortcuts, docs,
+    // YouTube references and other unrelated resources.
     if(url.toLowerCase().includes('/drive/folders/')){
       try{
-        cp.execFileSync('gdown',['--folder','--continue','--retries','3',url,'-O',dir],{stdio:'inherit'});
+        const listing=JSON.parse(cp.execFileSync('gdown',[url,'--folder','--json','--quiet'],{encoding:'utf8',maxBuffer:8*1024*1024}));
+        const mediaEntries=Array.isArray(listing)
+          ? listing.filter(x=>mediaExt.test(String(x?.path||'')))
+          : [];
+        console.log('Google Drive folder media entries:',mediaEntries.length,'of',Array.isArray(listing)?listing.length:0);
+        for(let i=0;i<mediaEntries.length;i++){
+          const entry=mediaEntries[i];
+          const safeName=path.basename(String(entry.path||('drive_'+i+'.mp4')));
+          const p=path.join(dir,String(i).padStart(4,'0')+'_'+safeName);
+          try{
+            cp.execFileSync('gdown',['--continue','--retries','3',String(entry.url),'-O',p],{stdio:'inherit'});
+            if(fs.existsSync(p)&&probe(p).valid) out.push({file:p,sourceUrl:url});
+            else if(fs.existsSync(p)) fs.unlinkSync(p);
+          }catch(e){
+            console.warn('Google Drive folder media download failed:',entry.url,e.message);
+            if(fs.existsSync(p)) fs.unlinkSync(p);
+          }
+        }
       }catch(e){
-        console.warn('Google Drive folder download unavailable:',e.message);
+        console.warn('Google Drive folder listing unavailable:',e.message);
       }
-      const walk=d=>fs.readdirSync(d,{withFileTypes:true}).flatMap(e=>{
-        const p=path.join(d,e.name);
-        return e.isDirectory()?walk(p):[p];
-      });
-      for(const file of walk(dir).filter(x=>mediaExt.test(x))) out.push({file,sourceUrl:url});
       return out;
     }
 
@@ -248,9 +261,23 @@ async function collectSource(type,url,tmp){
 
   return out;
 }
-(async()=>{const defaultType=String(process.env.INPUT_SOURCE_TYPE||'').trim();let rawSources=[];try{rawSources=JSON.parse(process.env.INPUT_SOURCE_URLS||'[]')}catch{};const campaignId=String(process.env.INPUT_CAMPAIGN_ID||'').trim();const supported=['MediaSilo','GoogleDrive','GoogleDriveFile','Dropbox','WeTransfer','DirectFile','YouTube','NextFrame','Website','BrowserFallback'];const sources=rawSources.map(x=>{if(x&&typeof x==='object')return{type:String(x.type||defaultType).trim(),url:String(x.url||'').trim()};return{type:defaultType,url:String(x||'').trim()};}).filter(x=>x.type&&x.url);if(!campaignId||!sources.length)throw new Error('SOURCE_INPUT_INCOMPLETE');for(const s of sources){if(!supported.includes(s.type))console.warn('Unknown normalized source type; routing to Chromium fallback:',s.type);}fs.rmSync('phase4-input',{recursive:true,force:true});fs.rmSync('.tmp-media',{recursive:true,force:true});fs.mkdirSync('phase4-input',{recursive:true});fs.mkdirSync('.tmp-media',{recursive:true});const candidates=[];const verified=[];let googleDriveBrowserFallbacks=0;for(const s of sources){try{if(String(s.type).toLowerCase()==='googledrive'&&!s.url.toLowerCase().includes('/drive/folders/')&&googleDriveBrowserFallbacks>=6){console.warn('Google Drive browser fallback cap reached; checkpointing remaining blocked files.');continue;}const before=candidates.length;const adapterType=supported.includes(s.type)?s.type:'BrowserFallback';
+(async()=>{const defaultType=String(process.env.INPUT_SOURCE_TYPE||'').trim();let rawSources=[];try{rawSources=JSON.parse(process.env.INPUT_SOURCE_URLS||'[]')}catch{};const campaignId=String(process.env.INPUT_CAMPAIGN_ID||'').trim();const supported=['MediaSilo','GoogleDrive','GoogleDriveFile','Dropbox','WeTransfer','DirectFile','YouTube','NextFrame','Website','BrowserFallback'];const sources=rawSources.map(x=>{if(x&&typeof x==='object')return{type:String(x.type||defaultType).trim(),url:String(x.url||'').trim()};return{type:defaultType,url:String(x||'').trim()};}).filter(x=>x.type&&x.url);if(!campaignId||!sources.length)throw new Error('SOURCE_INPUT_INCOMPLETE');for(const s of sources){if(!supported.includes(s.type))console.warn('Unknown normalized source type; routing to Chromium fallback:',s.type);}fs.rmSync('phase4-input',{recursive:true,force:true});fs.rmSync('.tmp-media',{recursive:true,force:true});fs.mkdirSync('phase4-input',{recursive:true});fs.mkdirSync('.tmp-media',{recursive:true});const candidates=[];const verified=[];let googleDriveBrowserFallbacks=0;
+const hasExplicitGoogleDriveFiles=sources.some(s=>String(s.type).toLowerCase()==='googledrivefile');
+const orderedSources=[...sources].sort((a,b)=>{
+  const af=String(a.type).toLowerCase()==='googledrivefile'?0:1;
+  const bf=String(b.type).toLowerCase()==='googledrivefile'?0:1;
+  return af-bf;
+});
+for(const s of orderedSources){try{
+  const isDriveFolder=String(s.type).toLowerCase()==='googledrive'&&s.url.toLowerCase().includes('/drive/folders/');
+  if(isDriveFolder&&hasExplicitGoogleDriveFiles){
+    console.log('Skipping redundant Google Drive folder because explicit Drive file resources are available.');
+    continue;
+  }
+  if(String(s.type).toLowerCase()==='googledrive'&&!s.url.toLowerCase().includes('/drive/folders/')&&googleDriveBrowserFallbacks>=6){console.warn('Google Drive browser fallback cap reached; checkpointing remaining blocked files.');continue;}
+  const before=candidates.length;const adapterType=supported.includes(s.type)?s.type:'BrowserFallback';
 let discovered=await collectSource(adapterType,s.url,'.tmp-media');
-if(!discovered.length&&adapterType!=='BrowserFallback'){
+if(!discovered.length&&adapterType!=='BrowserFallback'&&!(String(adapterType).toLowerCase()==='googledrive'&&s.url.toLowerCase().includes('/drive/folders/'))){
   console.warn('Primary adapter produced no media; invoking Chromium/Playwright fallback:',s.type,s.url);
   try{discovered=await collectSource('BrowserFallback',s.url,'.tmp-media');}catch(fallbackError){console.warn('Chromium/Playwright fallback failed:',s.url,fallbackError.message);}
 }
