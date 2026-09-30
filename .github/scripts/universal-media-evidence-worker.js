@@ -92,12 +92,11 @@ async function genericBrowserDiscover(url,options={}){
 async function downloadBrowserCandidate(candidate,target,requestContext,referer){
   const u=String(candidate?.url||candidate||'');
   if(/\.(m3u8|mpd)(?:[?#]|$)/i.test(u)){
-    let headers='';
+    let headers=referer?'Referer: '+referer+'\r\n':'';
     try{
       const cookies=await requestContext.storageState();
       const cookie=(cookies.cookies||[]).map(c=>c.name+'='+c.value).join('; ');
       if(cookie)headers+='Cookie: '+cookie+'\r\n';
-      if(referer)headers+='Referer: '+referer+'\r\n';
     }catch{}
     const args=['-y'];
     if(headers)args.push('-headers',headers);
@@ -192,6 +191,7 @@ async function collectSource(type,url,tmp,options={}){
     const discovered=await genericBrowserDiscover(url,{maxPages:4,timeoutMs:45000,settleMs:4000});
     for(const c of discovered){
       const known=classifyBrowserUrl(c.url);
+      let candidatePath;
       try{
         if(known!=='BrowserFallback'&&!isMediaUrl(c.url)){
           if(!known)continue;
@@ -199,15 +199,16 @@ async function collectSource(type,url,tmp,options={}){
           for(const item of nested) out.push({...item,sourceUrl:item.sourceUrl||url,sourceType:item.sourceType||known,sourceAdapter:'ChromiumPlaywrightFallback'});
         }else{
           const p=path.join(tmp,'browser_fallback_'+Date.now()+'_'+out.length+(/\.(m3u8|mpd)(?:[?#]|$)/i.test(c.url)?'.mp4':'.bin'));
+          candidatePath=p;
           await downloadBrowserCandidate(c,p,null,url);
           if(probe(p).valid)out.push({file:p,sourceUrl:url,discoveredMediaUrl:c.url,sourceAdapter:'ChromiumPlaywrightFallback'});
           else if(fs.existsSync(p))fs.unlinkSync(p);
         }
       }catch(e){
         console.warn('browser fallback candidate failed:',c.url,e.message);
-        if(fs.existsSync(path.join(tmp,'browser_fallback_'+Date.now()+'_'+out.length+'.bin')))fs.unlinkSync(path.join(tmp,'browser_fallback_'+Date.now()+'_'+out.length+'.bin'));
+        if(candidatePath&&fs.existsSync(candidatePath))fs.unlinkSync(candidatePath);
       }
-      if(out.length>=1000)break;
+      if(out.length>=(options.limit||1000))break;
     }
     return out;
   }

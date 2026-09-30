@@ -111,6 +111,13 @@ test('file and folder duplicate IDs download only once', t => {
   collectDrive({type:'GoogleDrive',url:folderUrl},f.tmp,f.options);
   assert.equal(f.calls.filter(c=>c.args.includes('-O')).length,1);
 });
+
+test('extensionless documents are reported as non-media, not duplicate videos', t => {
+  const f=fixture(t,[entry(id,'Campaign brief')],{metadata:[entry(id,'Campaign brief.pdf')]});
+  assert.deepEqual(collectDrive({type:'GoogleDrive',url:folderUrl},f.tmp,f.options),[]);
+  assert.equal(f.diagnostics[0].status,'NO_MEDIA_FILES');
+  assert.equal(f.calls.filter(c=>c.args.includes('-O')).length,0);
+});
 test('download timeouts and invalid media return diagnostics, never candidates', t => {
   for(const behaviour of [{downloadError:Object.assign(new Error('timeout'),{code:'ETIMEDOUT'})},{probe:()=>({valid:false})}]) {
     const f=fixture(t,[entry(id,'clip.mp4')],behaviour);

@@ -68,9 +68,10 @@ function collectDrive(source, tmp, options = {}) {
     report.status = 'GOOGLE_DRIVE_LISTING_ID_MISMATCH'; return [];
   }
   const out = [];
+  let skippedDuplicates = 0;
   for (const entry of entries) {
     if (out.length >= limit) break;
-    if (seen.has(entry.sourceId)) continue;
+    if (seen.has(entry.sourceId)) { skippedDuplicates++; continue; }
     seen.add(entry.sourceId);
     if (entry.needsMetadata) {
       try {
@@ -106,8 +107,10 @@ function collectDrive(source, tmp, options = {}) {
     }
   }
   report.remainingMediaCount = entries.filter(e => !seen.has(e.sourceId)).length;
+  report.skippedDuplicates = skippedDuplicates;
   report.status = out.length ? (report.failed.length ? 'PARTIAL' : 'READY') :
-    (report.failed.length ? 'GOOGLE_DRIVE_MEDIA_UNAVAILABLE' : 'DUPLICATE');
+    (report.failed.length ? 'GOOGLE_DRIVE_MEDIA_UNAVAILABLE' :
+      (skippedDuplicates === entries.length ? 'DUPLICATE' : 'NO_MEDIA_FILES'));
   return out;
 }
 
