@@ -3,7 +3,9 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const patch=require('../docs/n8n/universal-adapter-operations.json');
 const code=patch.operations.find(o=>o.nodeName==='Prepare Phase 4A Runner').parameters.jsCode;
-const run=input=>new Function('$input',code)({first:()=>({json:input})})[0].json;
+const vm=require('node:vm');
+// Model the real n8n Cloud sandbox: no URL constructor or require().
+const run=input=>vm.runInNewContext('(function(){'+code+'})()',{$input:{first:()=>({json:input})}})[0].json;
 const file='https://drive.google.com/file/d/unit_fixture_0000000001/view';
 const folder='https://drive.google.com/drive/folders/unit_folder_0000000001';
 test('n8n handoff preserves Drive file/folder meaning and deduplicates aliases',()=>{
