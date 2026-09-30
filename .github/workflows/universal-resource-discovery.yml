@@ -28,13 +28,21 @@ jobs:
         with:
           node-version: 24
       - name: Run universal resource discovery
-        run: node .github/scripts/resource-discovery-worker.js 2>&1 | tee resource-discovery.log
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check .github/scripts/resource-discovery-worker.js
+          node .github/scripts/resource-discovery-worker.js 2>&1 | tee resource-discovery.log
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           CAMPAIGN_ID: ${{ inputs.campaign_id }}
           CAMPAIGN_URL: ${{ inputs.campaign_url }}
           REFERENCE_URLS: ${{ inputs.reference_urls }}
+      - name: Validate discovery artifact
+        run: node .github/scripts/validate-resource-discovery.js
+        env:
+          CAMPAIGN_ID: ${{ inputs.campaign_id }}
       - name: Upload discovery artifact
         if: always()
         uses: actions/upload-artifact@v4
