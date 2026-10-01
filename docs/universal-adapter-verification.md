@@ -11,6 +11,8 @@ The existing GitHub Phase Runner and n8n orchestration are retained. All executi
 - Direct-file temporary paths no longer collide. Successful MediaSilo/Frame.io files are no longer deleted before frame extraction. Browser fallback respects the requested asset limit, removes the actual failed candidate, and supplies stream referers without requiring a browser cookie context.
 - Resource discovery syntax and shell pipeline exit propagation were fixed; artifacts are validated before being accepted.
 - Phase Runner failures retain the actual GitHub conclusion and exact run ID. They no longer infer that the source is unavailable or recommend an automatic retry.
+- The malformed legacy workflow contained literal `\n` sequences and generated GitHub validation failures on pushes. It is now valid manual-only YAML with the same variable-asset validation contract as V2. The n8n route still targets V2.
+- Phase 7's Drive source path now uses the bounded Drive handler and selects only the stable asset IDs verified in Phase 4A. Missing or old order-based identities stop explicitly; it never substitutes another file by folder order. Rendering and all non-Drive Phase 7 paths remain unchanged.
 
 ## Real folder test
 
@@ -30,8 +32,18 @@ Reproducible operations are in `docs/n8n/universal-adapter-operations.json` and 
 - Readback verified exact code, unchanged connections/settings and unchanged other nodes. Both remain inactive and unpublished. No old execution timeout was restored.
 - Whole-workflow SDK validation passed. Static expression-path warnings reflect unspecified sample outputs in the exported SDK. Live update warnings were pre-existing canvas grouping warnings; layout was intentionally preserved.
 
+## Real file test through the existing runner
+
+- Main fixes merged in [PR 2](https://github.com/shiy1s/whopautomation/pull/2), merge commit `f98420dfd37f6a5bc9e386ff48586ad9cdceaefb`.
+- n8n manual execution `24` invoked the original Phase Runner, integrated execution `25`. Both succeeded; the runner dispatched `main`, polled the exact run ID and returned its successful conclusion.
+- Inputs included `GoogleDriveFile`, a duplicate `GoogleDrive` download alias and the Boxabl folder. Normalization produced one file and one folder; limit 1 stopped before visiting the folder.
+- [GitHub run 36772869986](https://github.com/shiy1s/whopautomation/actions/runs/36772869986) passed. The downloaded artifact confirms the same file ID, stable asset ID, 72,756,984-byte video and 12 frames as the folder test, with `fallbackUsed: false` and the folder listed in `unattemptedSources`.
+- Artifact ID `11123419053`, SHA-256 `17364114863e54df1aaa2e5ce4918ffda12e03f602669490174fe860d691c217`. Both test artifacts were retrieved locally; a frame was visually inspected.
+
 ## Verification scope
 
-29 local regression tests pass. They cover normalization, Drive routing, metadata filtering, duplicate handling, empty folders, timeouts, source provenance, restricted n8n execution and Phase Runner error reporting. Synthetic fixtures are unit-test inputs, not campaign evidence.
+32 local regression tests pass. They cover normalization, Drive routing, metadata filtering, duplicate handling, empty folders, timeouts, source provenance, restricted n8n execution, Phase Runner error reporting and Phase 7 exact-file selection. Synthetic fixtures are unit-test inputs, not campaign evidence. All workflow YAML files parse successfully; the modified Phase 7 source worker passes Node syntax validation.
 
 Other provider routing and fallback behavior are regression-tested; their authenticated live services and the downstream publishing pipeline have not been exercised during this recovery. Evidence extraction success does not certify campaign compliance or approval to publish.
+
+The new Phase 7 identity-selection logic has unit coverage and reuses the real-tested Drive downloader. A complete Phase 4B–7 campaign execution has not been run; no semantic-analysis, rendering or publishing result is claimed. Legacy Drive plans using order-based asset IDs must regenerate Phase 4A evidence before Phase 7.

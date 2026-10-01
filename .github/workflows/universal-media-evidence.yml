@@ -1,1 +1,65 @@
-name: Universal Media Evidence Worker\non:\n  workflow_dispatch:\n    inputs:\n      source_type:\n        description: "Normalized media source type"\n        required: true\n        type: string\n      source_url:\n        description: "Primary normalized source URL"\n        required: true\n        type: string\n      source_urls:\n        description: "Normalized source URLs as JSON"\n        required: false\n        default: "[]"\n        type: string\n      campaign_id:\n        description: "Campaign ID"\n        required: true\n        type: string\njobs:\n  phase4:\n    runs-on: ubuntu-latest\n    timeout-minutes: 25\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 24\n      - name: Install browser\n        run: |\n          npm init -y\n          npm install --no-audit --no-fund playwright@1.55.0\n          npx playwright install --with-deps chromium\n      - name: Install source tools\n        run: |\n          python -m pip install --disable-pip-version-check --no-input gdown==6.4.0 yt-dlp\n          sudo apt-get update\n          sudo apt-get install -y --no-install-recommends ffmpeg\n      - name: Build normalized Phase 4 evidence\n        run: node .github/scripts/universal-media-evidence-worker.js\n        env:\n          INPUT_SOURCE_TYPE: ${{ inputs.source_type }}\n          INPUT_SOURCE_URL: ${{ inputs.source_url }}\n          INPUT_SOURCE_URLS: ${{ inputs.source_urls }}\n          INPUT_CAMPAIGN_ID: ${{ inputs.campaign_id }}\n      - name: Validate artifact\n        run: node -e "const fs=require('fs');const p='phase4-input/phase4-input-manifest.json';if(!fs.existsSync(p))throw new Error('Manifest missing');const m=JSON.parse(fs.readFileSync(p));if(m.complete!==true||m.videoAssetCount!==2||m.frameCount!==24)throw new Error('Universal Phase 4 validation failed');console.log('PHASE4_ARTIFACT_VALIDATION_PASS')"\n      - name: Upload evidence\n        if: always()\n        uses: actions/upload-artifact@v4\n        with:\n          name: normalized-phase4-${{ inputs.campaign_id }}\n          path: |\n            phase4-input\n            mediasilo-network.log\n            mediasilo-debug.json\n          if-no-files-found: warn\n          retention-days: 7
+name: Universal Media Evidence Worker — Legacy Manual Entry
+on:
+  workflow_dispatch:
+    inputs:
+      source_type:
+        description: "Normalized media source type"
+        required: true
+        type: string
+      source_url:
+        description: "Primary normalized source URL"
+        required: true
+        type: string
+      source_urls:
+        description: "Normalized source URLs as JSON"
+        required: false
+        default: "[]"
+        type: string
+      campaign_id:
+        description: "Campaign ID"
+        required: true
+        type: string
+permissions:
+  contents: read
+
+jobs:
+  phase4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install browser
+        run: |
+          npm init -y
+          npm install --no-audit --no-fund playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Install source tools
+        run: |
+          python -m pip install --disable-pip-version-check --no-input gdown==6.4.0 yt-dlp
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Build normalized Phase 4 evidence
+        run: |
+          node --check .github/scripts/universal-media-evidence-worker.js
+          node .github/scripts/universal-media-evidence-worker.js
+        env:
+          INPUT_SOURCE_TYPE: ${{ inputs.source_type }}
+          INPUT_SOURCE_URL: ${{ inputs.source_url }}
+          INPUT_SOURCE_URLS: ${{ inputs.source_urls }}
+          INPUT_CAMPAIGN_ID: ${{ inputs.campaign_id }}
+      - name: Validate artifact
+        run: node -e "const fs=require('fs');const p='phase4-input/phase4-input-manifest.json';if(!fs.existsSync(p))throw new Error('Manifest missing');const m=JSON.parse(fs.readFileSync(p));if(m.complete!==true||Number(m.videoAssetCount)<1||Number(m.frameCount)<1||m.frameCount!==m.results.reduce((n,x)=>n+Number(x.frameCount||0),0))throw new Error('Universal Phase 4 validation failed');console.log('PHASE4_ARTIFACT_VALIDATION_PASS')"
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: normalized-phase4-${{ inputs.campaign_id }}
+          path: |
+            phase4-input
+            mediasilo-network.log
+            mediasilo-debug.json
+          if-no-files-found: warn
+          retention-days: 7
