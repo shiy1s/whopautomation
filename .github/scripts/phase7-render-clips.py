@@ -3,13 +3,15 @@ import json, os, subprocess
 with open("clips.json", encoding="utf-8") as f:
     data = json.load(f)
 
-logo = "Call_of_Duty_Wordmark_Stacked_CMYK_White.png"
 font = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 with open("render-config.json", encoding="utf-8") as f:
     render_config = json.load(f)
+logo = render_config.get("logoFile")
 logo_required = bool(render_config.get("logoRequired", False))
 text_required = bool(render_config.get("onScreenTextRequired", False))
 require_audio = bool(render_config.get("originalAudioMustRemainAudible", False))
+if logo_required and (not logo or not os.path.isfile(logo)):
+    raise RuntimeError("Required campaign logo is not provisioned in this render job.")
 
 
 def sec(ts):

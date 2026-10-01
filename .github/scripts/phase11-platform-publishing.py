@@ -193,7 +193,7 @@ def main():
   print(json.dumps({"preflight":"pass","platforms":PLATFORMS,"clipCount":len(m.get("clips",[])),"phase9RunId":m["phase9RunId"]})); return
  confirm=os.getenv("CONFIRM_PUBLISH","").strip()
  if confirm.lower()=="test":
-  print(json.dumps({"dryRun":"pass","platforms":PLATFORMS,"clipCount":2,"phase9RunId":m["phase9RunId"],"publishingSkipped":True})); return
+  print(json.dumps({"dryRun":"pass","platforms":PLATFORMS,"clipCount":len(m["clips"]),"phase9RunId":m["phase9RunId"],"publishingSkipped":True})); return
  if confirm!="PUBLISH": die("Publishing locked: set confirm_publish=PUBLISH")
  l,ls=ledger()
  for p in PLATFORMS:

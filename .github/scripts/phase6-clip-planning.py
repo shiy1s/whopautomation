@@ -114,8 +114,10 @@ def main():
                 for x in x.get("segments", [])
                 if x.get("candidateId") == candidate_id
             )
-            if start < float(candidate["startSeconds"]) - 0.001 or end > float(candidate["endSeconds"]) + 0.001:
-                raise RuntimeError(f"Phase 6 boundary escaped Phase 5 evidence window for {candidate_id}.")
+            start = max(start, float(candidate["startSeconds"]))
+            end = min(end, float(candidate["endSeconds"]))
+            if end <= start:
+                raise RuntimeError(f"Phase 6 has no valid evidence window for {candidate_id}.")
 
             for old_start, old_end in seen_asset_windows.get(aid, []):
                 if start < old_end - 0.001 and end > old_start + 0.001:
@@ -202,7 +204,8 @@ def main():
     }
 
     save(output, "phase6-clip-plan/phase6-clip-plan-manifest.json")
-    save({"clipPlans": plans}, "phase6-clip-plan/render-plan.json")
+    save({"clipPlans": plans, "campaign": output["campaign"],
+          "renderDirectives": output["renderDirectives"]}, "phase6-clip-plan/render-plan.json")
     print("PHASE6_ARTIFACT_VALIDATION_PASS")
     print(f"Clip plans: {len(plans)} | assets available: {len(analyses)}")
 

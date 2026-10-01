@@ -18,16 +18,16 @@ text_options = [str(x).strip() for x in directives.get("onScreenTextOptions", []
 render_assets = directives.get("renderAssets", {}) if isinstance(directives.get("renderAssets", {}), dict) else {}
 logo_path = str(render_assets.get("logoPath") or "").strip()
 text_path = str(render_assets.get("onScreenTextPath") or "").strip()
-logo = Path(logo_path) if logo_path else Path("Call_of_Duty_Wordmark_Stacked_CMYK_White.png")
-campaign_text = Path(text_path) if text_path else Path("campaign_text.txt")
+logo = Path(logo_path) if logo_path else None
+campaign_text = Path(text_path) if text_path else None
 
 # The current proven campaign has a committed logo/text asset. For a new campaign,
 # never reuse it silently: if branding/text is required but not provisioned, stop.
-if logo_required and not logo.is_file():
+if logo_required and (logo is None or not logo.is_file()):
     raise RuntimeError("CAMPAIGN_LOGO_ASSET_REQUIRED_BUT_NOT_PROVISIONED")
-if text_required and not text_options and not campaign_text.is_file():
+if text_required and not text_options and (campaign_text is None or not campaign_text.is_file()):
     raise RuntimeError("CAMPAIGN_ONSCREEN_TEXT_REQUIRED_BUT_NOT_PROVISIONED")
-if text_required and not text_options and campaign_text.is_file():
+if text_required and not text_options and campaign_text is not None and campaign_text.is_file():
     text_options = [campaign_text.read_text(encoding="utf-8").strip()]
 if text_required and not text_options:
     raise RuntimeError("CAMPAIGN_ONSCREEN_TEXT_REQUIRED_BUT_EMPTY")
