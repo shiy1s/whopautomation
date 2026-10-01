@@ -86,6 +86,34 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
   if (!requiredAssetIds.length) throw new Error("PHASE6_REQUIRED_ASSET_IDS_MISSING");
   const requiredAssetCount = requiredAssetIds.length;
 
+  if (sourceType === 'googledrive' || sourceType === 'googledrivefile') {
+    const { acquireDriveAssets } = require('./phase7-drive-sources');
+    const { probe } = require('./universal-media-evidence-worker');
+    const outDir=path.resolve('sources'), tmpDir=path.resolve('.tmp-media');
+    fs.mkdirSync(outDir,{recursive:true});
+    fs.mkdirSync(tmpDir,{recursive:true});
+    const diagnostics=[];
+    const deadline=Date.now()+18*60*1000;
+    let selected;
+    try {
+      selected=acquireDriveAssets(assetSource,requiredAssetIds,tmpDir,{probe,diagnostics,timeLeft:()=>deadline-Date.now()});
+    } finally {
+      fs.writeFileSync('mediasilo-debug.json',JSON.stringify({sourceType,diagnostics},null,2));
+    }
+    const assets=selected.map(item=>{
+      const target=path.join(outDir,item.assetId+'.mp4');
+      fs.copyFileSync(item.file,target);
+      return {assetId:item.assetId,fileName:item.fileName,path:target,durationSeconds:item.probe.duration,
+        width:item.probe.width,height:item.probe.height,fileSizeBytes:item.probe.size,
+        sourceType:'GoogleDrive',sourceUrl:item.sourceUrl,sourceFileId:item.sourceFileId,parentSourceUrl:item.parentSourceUrl};
+    });
+    fs.writeFileSync('phase7-source-manifest.json',JSON.stringify({schemaVersion:'2.1',complete:true,
+      videoAssetCount:assets.length,sourceType:'GoogleDrive',campaignId:String(phase6.campaign?.campaignId||''),assets,
+      createdAt:new Date().toISOString()},null,2));
+    console.log('PHASE7_SOURCE_VALIDATION_PASS');
+    return;
+  }
+
   const normalizedTypes=['mediasilo','googledrive','googledrivefile','dropbox','wetransfer','directfile','youtube','nextframe','website','browserfallback'];
   if (normalizedTypes.includes(sourceType)) {
     console.log('=== Starting normalized Phase 7 source adapter: '+sourceType+' ===');

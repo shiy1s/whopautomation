@@ -5,7 +5,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { normalizeSource, normalizeSources } = require('../.github/scripts/media-source-contract');
-const { collectDrive, mediaEntries } = require('../.github/scripts/google-drive-media');
+const { collectDrive, mediaEntries, driveAssetId } = require('../.github/scripts/google-drive-media');
+const { acquireDriveAssets } = require('../.github/scripts/phase7-drive-sources');
 const { collectWithFallback, classifyBrowserUrl } = require('../.github/scripts/universal-media-evidence-worker');
 
 // Synthetic unit fixtures, never real campaign or media evidence.
@@ -117,6 +118,33 @@ test('extensionless documents are reported as non-media, not duplicate videos', 
   assert.deepEqual(collectDrive({type:'GoogleDrive',url:folderUrl},f.tmp,f.options),[]);
   assert.equal(f.diagnostics[0].status,'NO_MEDIA_FILES');
   assert.equal(f.calls.filter(c=>c.args.includes('-O')).length,0);
+});
+
+test('Phase 7 downloads only requested Drive identities even when folder order differs', t => {
+  const f=fixture(t,[entry(id,'Unrequested.mp4'),entry(id2,'Selected.mp4')]);
+  const selected=acquireDriveAssets({sourceType:'GoogleDrive',sourceUrl:folderUrl},[driveAssetId(id2)],f.tmp,f.options);
+  assert.equal(selected.length,1);
+  assert.equal(selected[0].assetId,driveAssetId(id2));
+  assert.equal(selected[0].sourceFileId,id2);
+  const downloads=f.calls.filter(c=>c.args.includes('-O'));
+  assert.equal(downloads.length,1);
+  assert.ok(downloads[0].args.includes(fileUrl(id2)));
+  assert.equal(f.diagnostics[0].skippedUnrequested,1);
+});
+
+test('Phase 7 missing or legacy Drive identities stop instead of substituting footage',t=>{
+  const f=fixture(t,[entry(id,'Same name.mp4')]);
+  assert.throws(()=>acquireDriveAssets({sourceType:'GoogleDrive',sourceUrl:folderUrl},[driveAssetId(id2)],f.tmp,f.options),/EXACT_ASSETS_UNAVAILABLE/);
+  assert.equal(f.calls.filter(c=>c.args.includes('-O')).length,0);
+  assert.throws(()=>acquireDriveAssets({sourceType:'GoogleDrive',sourceUrl:folderUrl},['googledrive-asset-1'],f.tmp,f.options),/PROVENANCE_MISSING/);
+});
+
+test('Phase 7 returns assets in plan order and preserves the verified Phase 4A identity',()=>{
+  const selected=acquireDriveAssets({sourceType:'GoogleDrive',sourceUrl:folderUrl},[driveAssetId(id2),driveAssetId(id)],'.',{
+    collect:()=>[{sourceFileId:id,fileName:'A.mp4'},{sourceFileId:id2,fileName:'B.mp4'}]
+  });
+  assert.deepEqual(selected.map(x=>x.sourceFileId),[id2,id]);
+  assert.equal(driveAssetId('1jVAUxzeUHfwUzebLyohWr5dRvILvTWBB'),'googledrive-3916bd67e41fd2ea');
 });
 test('download timeouts and invalid media return diagnostics, never candidates', t => {
   for(const behaviour of [{downloadError:Object.assign(new Error('timeout'),{code:'ETIMEDOUT'})},{probe:()=>({valid:false})}]) {

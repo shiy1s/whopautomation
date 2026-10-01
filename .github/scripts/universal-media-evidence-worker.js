@@ -2,7 +2,7 @@ const fs=require('fs');
 const path=require('path');
 const cp=require('child_process');
 const { normalizeSource, normalizeSources } = require('./media-source-contract');
-const { collectDrive } = require('./google-drive-media');
+const { collectDrive, driveAssetId } = require('./google-drive-media');
 const { pipeline } = require('node:stream/promises');
 const { Readable, Transform } = require('node:stream');
 const chromium = { launch: (...args) => require('playwright').chromium.launch(...args) };
@@ -279,7 +279,7 @@ async function main(){
   const crypto=require('crypto');
   for(const v of verified){
     if(timeLeft()<=0)throw new Error('ADAPTER_TIME_BUDGET_EXCEEDED');
-    const assetId=v.sourceType.toLowerCase()+'-'+crypto.createHash('sha256').update(v.identity).digest('hex').slice(0,16);
+    const assetId=v.sourceFileId?driveAssetId(v.sourceFileId):v.sourceType.toLowerCase()+'-'+crypto.createHash('sha256').update(v.identity).digest('hex').slice(0,16);
     const fr=frames(v.file,path.join('phase4-input',assetId,'frames'),v.probe.duration);
     results.push({assetId,fileName:v.fileName||path.basename(v.file),durationSeconds:v.probe.duration,
       width:v.probe.width,height:v.probe.height,fileSizeBytes:v.probe.size,frameCount:fr.length,frames:fr,

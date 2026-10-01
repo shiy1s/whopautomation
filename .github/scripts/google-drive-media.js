@@ -3,9 +3,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
+const crypto = require('node:crypto');
 const { normalizeSource } = require('./media-source-contract');
 const VIDEO_NAME = /\.(mp4|mov|m4v|webm|mkv|avi|mpeg|mpg|ts)$/i;
 const NON_MEDIA_NAME = /\.(pdf|txt|md|docx?|xlsx?|pptx?|csv|json|url|lnk|jpg|jpeg|png|gif|webp|svg|zip|rar|7z|mp3|wav|m4a)$/i;
+const driveAssetId = id => 'googledrive-' + crypto.createHash('sha256').update('GoogleDrive|' + id).digest('hex').slice(0,16);
 
 function mediaEntries(listing) {
   if (!Array.isArray(listing)) throw new Error('GOOGLE_DRIVE_LISTING_INVALID');
@@ -58,12 +60,14 @@ function collectDrive(source, tmp, options = {}) {
     report.error = String(error.stderr || error.message).slice(0, 1200);
     return [];
   }
-  const entries = mediaEntries(listing);
+  const allEntries = mediaEntries(listing);
+  const entries = options.wantedAssetIds ? allEntries.filter(e => options.wantedAssetIds.has(driveAssetId(e.sourceId))) : allEntries;
   report.listed = listing.length;
-  report.mediaCount = entries.length;
-  report.skippedNonMedia = listing.length - entries.length;
+  report.mediaCount = allEntries.length;
+  report.skippedNonMedia = listing.length - allEntries.length;
+  if (options.wantedAssetIds) report.skippedUnrequested = allEntries.length - entries.length;
   if (!listing.length) { report.status = 'EMPTY_FOLDER'; return []; }
-  if (!entries.length) { report.status = 'NO_MEDIA_FILES'; return []; }
+  if (!entries.length) { report.status = allEntries.length ? 'REQUESTED_ASSETS_NOT_IN_SOURCE' : 'NO_MEDIA_FILES'; return []; }
   if (s.sourceKind === 'file' && (entries.length !== 1 || entries[0].sourceId !== s.sourceId)) {
     report.status = 'GOOGLE_DRIVE_LISTING_ID_MISMATCH'; return [];
   }
@@ -114,4 +118,4 @@ function collectDrive(source, tmp, options = {}) {
   return out;
 }
 
-module.exports = { collectDrive, mediaEntries, failureReason };
+module.exports = { collectDrive, mediaEntries, failureReason, driveAssetId };
