@@ -60,6 +60,7 @@ class DownstreamContracts(unittest.TestCase):
 
     def test_phase5_to_phase6_retains_timestamps_and_render_directives(self):
         a = asset()
+        a['durationSeconds'] = 23.999993
         m = {'complete': True, 'analysis': {'assetCount': 1, 'frameCount': 5},
              'assets': [{'analysisFile': 'unit.json'}], 'campaignRules': {'campaignId': 'unit'}}
         for root in ['phase4-source', 'phase4b-source']:
@@ -83,6 +84,9 @@ class DownstreamContracts(unittest.TestCase):
         self.assertEqual(plan['campaign']['campaignId'], 'unit')
         self.assertEqual(plan['renderDirectives']['onScreenTextOptions'], ['UNIT'])
         self.assertTrue(plan['renderDirectives']['originalAudioMustRemainAudible'])
+        segment = plan['clipPlans'][0]['segments'][0]
+        self.assertLessEqual(segment['endSeconds'], a['durationSeconds'])
+        self.assertEqual(segment['endSeconds'], 23.999)
 
     def test_metadata_uses_platform_tags_and_no_global_campaign_text(self):
         save('phase8-qc/phase8-video-qc-manifest.json', {'complete': True, 'status': 'pass',
