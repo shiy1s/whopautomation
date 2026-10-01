@@ -120,7 +120,8 @@ jobs:
           import json
           from pathlib import Path
           d=json.loads(Path("phase6-source/phase6-clip-plan-manifest.json").read_text()).get("renderDirectives",{})
-          if d.get("logoRequired") and not Path("Call_of_Duty_Wordmark_Stacked_CMYK_White.png").is_file():
+          logo=d.get("renderAssets",{}).get("logoPath")
+          if d.get("logoRequired") and (not logo or not Path(logo).is_file()):
               raise SystemExit("Required campaign logo asset is not provisioned.")
           if d.get("onScreenTextRequired") and not d.get("onScreenTextOptions"):
               raise SystemExit("Required campaign on-screen text is not provisioned.")

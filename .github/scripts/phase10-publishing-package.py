@@ -30,8 +30,6 @@ if len(p9.get("clips", [])) < 1:
     raise RuntimeError("Phase 10 requires at least one metadata clip.")
 if len(quality) < 1 or len(p7.get("plans", [])) < 1:
     raise RuntimeError("Phase 7 must contain at least one plan and quality report.")
-if p7.get("originalAudioPreserved") is not True or p7.get("campaignBrandingApplied") is not True:
-    raise RuntimeError("Phase 7 audio/branding gates are not satisfied.")
 
 campaign_id = str(p9.get("campaignId") or "").strip()
 if not campaign_id:
@@ -41,6 +39,11 @@ if not RULES_PATH.is_file():
     raise RuntimeError(f"Missing persisted campaign rules: {RULES_PATH}")
 rules_doc = json.loads(RULES_PATH.read_text(encoding="utf-8"))
 campaign_rules = rules_doc.get("rules", {})
+if campaign_rules.get("audio", {}).get("originalAudioMustRemainAudible") and p7.get("originalAudioPreserved") is not True:
+    raise RuntimeError("Required Phase 7 audio gate is not satisfied.")
+branding_required = bool(campaign_rules.get("branding", {}).get("logoRequired") or campaign_rules.get("onScreenText", {}).get("required"))
+if branding_required and p7.get("campaignBrandingApplied") is not True:
+    raise RuntimeError("Required Phase 7 branding gate is not satisfied.")
 
 if not VIDEOS.is_dir():
     raise RuntimeError("Phase 7 clip artifact directory is missing.")

@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import time
 from pathlib import Path
@@ -7,6 +8,7 @@ from google import genai
 from google.genai import types
 
 MIN_DURATION = 10.0
+MAX_DURATION = 60.0
 MAX_CANDIDATES_PER_ASSET = 6
 PAD_SECONDS = 5.0
 MIN_RELEVANCE = 0.80
@@ -87,7 +89,7 @@ def make_candidate(asset, frames, start_i, end_i, candidate_no):
                 signals.append(s)
 
     return {
-        "candidateId": f"{asset['assetId'][:8]}-C{candidate_no:02d}",
+        "candidateId": f"{hashlib.sha256(asset['assetId'].encode()).hexdigest()[:16]}-C{candidate_no:02d}",
         "assetId": asset["assetId"],
         "fileName": asset["fileName"],
         "startSeconds": round(start, 3),
@@ -117,7 +119,7 @@ def generate_candidates(asset):
         j = i
         while j + 1 < len(frames) and qualifying[j + 1]:
             j += 1
-        if (j - i + 1) >= MIN_CLUSTER_FRAMES or i == j:
+        if (j - i + 1) >= MIN_CLUSTER_FRAMES:
             runs.append((i, j))
         i = j + 1
 
@@ -125,11 +127,8 @@ def generate_candidates(asset):
     for idx, (i, j) in enumerate(runs[:MAX_CANDIDATES_PER_ASSET], 1):
         candidates.append(make_candidate(asset, frames, i, j, idx))
 
-    # Always preserve an evidence-backed candidate for the strongest frame if clustering
-    # produced no usable result. This is deterministic and still requires AI selection.
-    if not candidates:
-        strongest = max(range(len(frames)), key=lambda k: float(frames[k].get("campaignRelevance", frames[k].get("ricochetRelevance", 0))))
-        candidates.append(make_candidate(asset, frames, strongest, strongest, 1))
+    # No relevant evidence means no candidate. Do not turn the least-irrelevant
+    # frame into a clip opportunity merely to keep the pipeline running.
 
     # Deduplicate exact windows.
     unique = []
@@ -304,6 +303,8 @@ def main():
                 "role": str(s.get("role") or "evidence_supported"),
                 "anchorFrameStart": c["anchorFrameStart"],
                 "anchorFrameEnd": c["anchorFrameEnd"],
+                "anchorTimestampStart": c["anchorTimestampStart"],
+                "anchorTimestampEnd": c["anchorTimestampEnd"],
                 "safetyFlags": c.get("safetyFlags", []),
             })
 

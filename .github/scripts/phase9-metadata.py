@@ -5,7 +5,6 @@ from pathlib import Path
 
 ROOT=Path(".")
 INPUT=ROOT/"phase8-qc"/"phase8-video-qc-manifest.json"
-CAMPAIGN_TEXT_PATH=ROOT/"campaign_text.txt"
 OUT=ROOT/"phase9-metadata"
 OUT.mkdir(parents=True,exist_ok=True)
 
@@ -27,7 +26,11 @@ if not RULES_PATH.is_file():
 rules_doc=json.loads(RULES_PATH.read_text(encoding="utf-8"))
 rules=rules_doc["rules"]
 campaign_name=str(rules_doc.get("campaignName") or rules.get("campaignName") or "Campaign").strip()
-campaign_text=CAMPAIGN_TEXT_PATH.read_text(encoding="utf-8").strip() if CAMPAIGN_TEXT_PATH.exists() else ""
+# Never leak another campaign's repository-global text into this package.
+caption=rules.get("caption",{})
+campaign_text=str(caption.get("contextText") or "").strip()
+if caption.get("mustGiveContext") and not campaign_text:
+    raise RuntimeError("Campaign requires contextual captions, but caption.contextText is missing.")
 
 platforms=rules.get("platforms",{})
 account_tags={
@@ -54,10 +57,10 @@ def clean_title(index):
     title=f"{base} — Short {index}"
     return title[:100]
 
-def body_text(index):
+def body_text(index, platform):
     parts=[]
     if disclosure: parts.append(disclosure)
-    if account_tags["youtubeShorts"]: parts.append(str(account_tags["youtubeShorts"]))
+    if account_tags[platform]: parts.append(str(account_tags[platform]))
     parts.append(campaign_name)
     if campaign_text: parts.append(campaign_text[:600])
     parts.append(" ".join(HASHTAGS))
@@ -71,7 +74,7 @@ for index,report in enumerate(clip_reports,1):
         raise RuntimeError(f"{filename}: duration outside publishing bounds.")
     if not all(report.get("checks",{}).values()):
         raise RuntimeError(f"{filename}: Phase 8 contains a failed deterministic check.")
-    text=body_text(index)
+    text=body_text(index,"youtubeShorts")
     if disclosure and not text.startswith(disclosure+"\n"):
         raise RuntimeError(f"{filename}: disclosure is not first separate line.")
     item={
@@ -92,13 +95,13 @@ for index,report in enumerate(clip_reports,1):
         },
         "tiktok":{
             "requiredAccountTag":account_tags["tiktok"],
-            "caption":text,
+            "caption":body_text(index,"tiktok"),
             "hashtags":HASHTAGS,
             "ftcDisclosure":disclosure,
         },
         "instagram":{
             "requiredAccountTag":account_tags["instagram"],
-            "caption":text,
+            "caption":body_text(index,"instagram"),
             "hashtags":HASHTAGS,
             "ftcDisclosure":disclosure,
         },

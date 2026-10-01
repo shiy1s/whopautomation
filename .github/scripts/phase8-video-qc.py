@@ -52,7 +52,8 @@ if bool(phase7.get("originalAudioPreserved", False)) != require_audio:
 if bool(phase7.get("campaignBrandingApplied", False)) != branding_required:
     raise RuntimeError("Phase 7 branding provenance does not match persisted campaign rules.")
 
-expected_text = (ROOT / "campaign_text.txt").read_text(encoding="utf-8").strip() if text_required else ""
+render_text_options = phase7.get("renderDirectives", {}).get("onScreenTextOptions", [])
+expected_text = str(render_text_options[0]).strip() if text_required and render_text_options else ""
 if text_required and not expected_text:
     raise RuntimeError("campaign_text.txt is empty.")
 
@@ -173,7 +174,7 @@ for video in videos:
     if len(video_streams) != 1:
         fatal_errors.append(f"{name}: expected exactly one video stream.")
         continue
-    if len(audio_streams) < 1:
+    if require_audio and len(audio_streams) < 1:
         fatal_errors.append(f"{name}: audio stream missing.")
 
     v = video_streams[0]
@@ -227,6 +228,8 @@ for video in videos:
         frame_paths.append(fp)
 
     evidence_indices = {0, len(frame_paths) // 2, len(frame_paths) - 1}
+    min_logo = None
+    min_text = None
     if logo_required or text_required:
         reference = Image.open(frame_paths[0])
         logo_coverages = []
@@ -272,8 +275,8 @@ for video in videos:
         "overlaySampling": {
             "sampleCount": sample_count,
             "intervalSeconds": SAMPLE_INTERVAL,
-            "minimumLogoCoverage": round(min_logo, 4),
-            "minimumRequiredTextCoverage": round(min_text, 4),
+            "minimumLogoCoverage": round(min_logo, 4) if min_logo is not None else None,
+            "minimumRequiredTextCoverage": round(min_text, 4) if min_text is not None else None,
             "threshold": OVERLAY_THRESHOLD,
             "evidenceFramesRetained": len(evidence_indices),
         },
@@ -318,8 +321,8 @@ out = {
         "logoSampledVisible": True,
         "requiredOnScreenText": expected_text,
         "requiredOnScreenTextSampledVisible": True,
-        "minimumDurationSeconds": campaign_rules["video"]["minimumDurationSeconds"],
-        "englishOnly": campaign_rules["video"]["englishOnly"],
+        "minimumDurationSeconds": minimum_duration,
+        "englishOnly": campaign_rules.get("video", {}).get("englishOnly", False),
     },
 }
 
