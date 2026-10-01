@@ -1,4 +1,5 @@
 import json
+import math
 from pathlib import Path
 import time
 
@@ -115,7 +116,11 @@ def main():
                 if x.get("candidateId") == candidate_id
             )
             start = max(start, float(candidate["startSeconds"]))
-            end = min(end, float(candidate["endSeconds"]))
+            end = min(end, float(candidate["endSeconds"]), float(analysis["durationSeconds"]))
+            # Quantize inward: nearest rounding can exceed the real source by
+            # fractions of a millisecond and fail the strict artifact contract.
+            start = math.ceil(start * 1000) / 1000
+            end = math.floor(end * 1000) / 1000
             if end <= start:
                 raise RuntimeError(f"Phase 6 has no valid evidence window for {candidate_id}.")
 
