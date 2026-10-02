@@ -127,11 +127,18 @@ def classify(e):
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--dry-run",action="store_true"); a=ap.parse_args()
     state,sha=read_queue(); pending=[x for x in state.get("submissions",[]) if x.get("status")=="queued"]
+    if any(x.get("status")=="submitting" for x in state.get("submissions",[])):
+        die("Unresolved submission intent; reconcile the previous browser attempt before retrying")
     if not pending: print(json.dumps({"status":"nothing_to_do","pending":0})); return
     results=[]
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=True); ctx=browser.new_context(storage_state=storage_state()); page=ctx.new_page()
         for item in pending:
+            if not a.dry_run:
+                item["status"]="submitting"
+                item["contentRewardsSubmission"]["status"]="submitting"
+                saved=write_queue(state,sha,"Record submission intent before browser action")
+                sha=saved["content"]["sha"]
             try:
                 r=process(page,item,a.dry_run); results.append(r)
                 if not a.dry_run:
@@ -140,10 +147,14 @@ def main():
                 status=classify(e); artifact(page,f"failure-{item.get('campaignId')}-{item.get('platform')}-{item.get('clipFile')}")
                 item["status"]=status; item["updatedAtUtc"]=now().strftime("%Y-%m-%dT%H:%M:%SZ"); item["error"]=str(e); item["contentRewardsSubmission"]["status"]=status
                 results.append({"status":status,"campaignId":item.get("campaignId"),"platform":item.get("platform"),"clipFile":item.get("clipFile"),"error":str(e)})
+            if not a.dry_run:
+                saved=write_queue(state,sha,"Record individual Content Rewards submission result")
+                sha=saved["content"]["sha"]
         ctx.close(); browser.close()
-    if a.dry_run: print(json.dumps({"status":"dry_run_complete","results":results},indent=2)); return
-    c=write_queue(state,sha,f"Record Content Rewards submission worker results ({len(results)} jobs)")
-    print(json.dumps({"status":"complete","results":results,"ledgerCommit":c.get("commit",{}).get("sha")},indent=2))
+    print(json.dumps({"status":"dry_run_complete" if a.dry_run else "complete","results":results},indent=2))
+    expected="validated" if a.dry_run else "submitted"
+    if any(r.get("status")!=expected for r in results):
+        die("Submission worker has unresolved results; inspect the recorded evidence")
 
 if __name__=="__main__":
     try: main()

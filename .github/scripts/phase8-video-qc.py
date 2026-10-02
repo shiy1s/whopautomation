@@ -306,7 +306,7 @@ out = {
         "fullDecodeCompleted": True,
         "campaignLogoSampledVisible": logo_required,
         "requiredOnScreenTextSampledVisible": text_required,
-        "originalAudioStreamPresent": require_audio,
+        "originalAudioStreamPresent": all(x["audioChannels"] > 0 for x in clip_reports),
         "durationWithinPhase6Plan": True,
     },
     "clipReports": clip_reports,

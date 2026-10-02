@@ -105,8 +105,10 @@ for item in sorted(p9["clips"], key=lambda x: x["clipNumber"]):
         raise RuntimeError(f"{filename}: duration outside publishing bounds.")
     if int(q["width"]) != 1080 or int(q["height"]) != 1920:
         raise RuntimeError(f"{filename}: not 1080x1920.")
-    if q["videoCodec"] != "h264" or int(q["bitrate"]) < 500000 or q.get("hasAudio") is not True:
+    if q["videoCodec"] != "h264" or int(q["bitrate"]) < 500000:
         raise RuntimeError(f"{filename}: Phase 7 quality contract failed.")
+    if campaign_rules.get("audio", {}).get("originalAudioMustRemainAudible") and q.get("hasAudio") is not True:
+        raise RuntimeError(f"{filename}: required original audio is missing.")
 
     for platform in ("youtubeShorts", "tiktok", "instagram"):
         obj = item[platform]
@@ -170,14 +172,16 @@ manifest = {
     "campaignName": p9["campaignName"],
     "publishingPolicy": {
         "platforms": ["YouTube Shorts", "TikTok", "Instagram"],
-        "postLiveMinimumDays": campaign_rules.get("publishing", {}).get("postLiveMinimumDays"),
+        "postLiveMinimumDays": campaign_rules.get("publishing", {}).get("postLiveMinimumDays") or campaign_rules.get("publishing", {}).get("liveDurationDays"),
         "visibleLikesRequired": campaign_rules.get("publishing", {}).get("visibleLikesRequired"),
         "paidBoostingForbidden": campaign_rules.get("publishing", {}).get("paidBoostingForbidden"),
         "storyPostsForbidden": campaign_rules.get("publishing", {}).get("storyPostsForbidden"),
-        "duplicatePostingForbidden": campaign_rules.get("publishing", {}).get("duplicatePostingForbidden"),
+        # Idempotency is a pipeline policy even when the brief omits it.
+        "duplicatePostingForbidden": True,
+        "campaignDuplicatePostingForbidden": bool(campaign_rules.get("publishing", {}).get("duplicatePostingForbidden")),
         "officialSourceOnly": campaign_rules.get("content", {}).get("officialFootageOnly"),
-        "originalAudioPreserved": True,
-        "campaignBrandingApplied": True,
+        "originalAudioPreserved": bool(p7.get("originalAudioPreserved")),
+        "campaignBrandingApplied": bool(p7.get("campaignBrandingApplied")),
         "phase10DoesNotPublish": True,
     },
     "packageChecks": {

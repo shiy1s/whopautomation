@@ -62,6 +62,8 @@ def main():
     ledger,_=read_json(LEDGER_PATH)
     pubs=[p for p in ledger.get("publications",[]) if p.get("phase11RunId")==int(RUN_ID) and p.get("status")=="published" and p.get("platform") in PLATFORMS and p.get("videoSha256")]
     if not pubs: die(f"No eligible YouTube/Instagram publications exist for Phase 11 run {RUN_ID}")
+    if any(p.get("campaignId")!=CAMPAIGN_ID for p in pubs):
+        die("Publication campaign identity is missing or mismatched; reconcile ledger provenance before queueing")
     pubs=[p for p in pubs if p.get("platform") in CAMPAIGN_PLATFORMS]
     if not pubs: die("No published platform is allowed by the selected campaign platform set")
     try: state,state_sha=read_json(SUBMISSION_PATH)
@@ -76,7 +78,9 @@ def main():
         if age < -2 or age > MAX_AGE:
             skipped.append({"platform":platform,"clipFile":clip,"reason":"outside_submission_window","ageMinutes":round(age,2)}); continue
         url=publication_url(platform,p.get("remote",{})); validate_url(platform,url,p.get("remote",{}))
-        dup=any(x.get("campaignId")==CAMPAIGN_ID and x.get("platform")==platform and x.get("clipFile")==clip and x.get("postUrl")==url and x.get("status") in {"prepared","queued","submitted","approved","pending","rejected"} for x in existing)
+        # Renaming a clip or re-running a blocked/ambiguous job must never
+        # create a second submission for the same published URL.
+        dup=any(x.get("campaignId")==CAMPAIGN_ID and x.get("platform")==platform and x.get("postUrl")==url for x in existing)
         if dup: skipped.append({"platform":platform,"clipFile":clip,"postUrl":url,"reason":"duplicate"}); continue
         rec={"schemaVersion":2,"status":"queued","campaignId":CAMPAIGN_ID,"campaignName":CAMPAIGN_NAME,"campaignPlatforms":sorted(CAMPAIGN_PLATFORMS),"platform":platform,"clipFile":clip,"postUrl":url,"publishedAtUtc":p["publishedAtUtc"],"preparedAtUtc":now().strftime("%Y-%m-%dT%H:%M:%SZ"),"ageMinutesAtPreparation":round(age,2),"phase11RunId":int(RUN_ID),"videoSha256":p["videoSha256"],"remote":p.get("remote",{}),"contentRewardsSubmission":{"automation":"playwright-worker","status":"queued","reason":"Deterministic validation passed; authorized browser worker may submit this exact public URL."}}
         existing.append(rec); prepared.append(rec)

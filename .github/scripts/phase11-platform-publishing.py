@@ -62,7 +62,27 @@ def save_ledger(l,oldsha):
  u=f"https://api.github.com/repos/{REPO}/contents/state/phase11-publication-ledger.json"
  return api(u,"PUT",body,token=TOKEN)["content"]["sha"]
 def duplicate(l,c,p):
- return any(x.get("clipFile")==c["file"] and x.get("platform")==p and x.get("videoSha256")==c["sha256"] and x.get("status")=="published" for x in l.get("publications",[]))
+ return any(x.get("platform")==p and x.get("videoSha256")==c["sha256"] and x.get("status")=="published" for x in l.get("publications",[]))
+
+def publish_one(l,ls,c,p,m):
+ if any(x.get("platform")==p and x.get("videoSha256")==c["sha256"] and x.get("status") in {"publishing","needs_manual_verification"} for x in l.get("publications",[])):
+  die(f"Unresolved publication for {p} {c['file']}; reconcile the original attempt before retrying")
+ record={"clipFile":c["file"],"platform":p,"videoSha256":c["sha256"],"campaignId":m.get("campaignId"),"phase10RunId":os.environ.get("PHASE10_RUN_ID"),"phase11RunId":int(os.environ["GITHUB_RUN_ID"]),"status":"publishing","attemptedAtUtc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}
+ if not record["campaignId"]: die("Publishing package lacks campaignId")
+ l.setdefault("publications",[]).append(record)
+ # Persist intent before any upload. A crash or failed final write must not
+ # leave the next run free to upload the same video again.
+ ls=save_ledger(l,ls)
+ try:
+  result=youtube(c) if p=="youtube" else tiktok(c) if p=="tiktok" else instagram(c)
+ except Exception:
+  record["status"]="needs_manual_verification"
+  save_ledger(l,ls)
+  raise
+ record.update(status="published",remote=result,publishedAtUtc=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()))
+ ls=save_ledger(l,ls)
+ print(json.dumps({"publicationResult":result,"clipFile":c["file"],"platform":p}))
+ return ls
 def youtube_access_token():
  fields={
   "client_id":os.environ["YOUTUBE_CLIENT_ID"],
@@ -200,10 +220,7 @@ def main():
   for c in m["clips"]:
    if duplicate(l,c,p): print(f"SKIP duplicate: {p} {c['file']}"); continue
    print(f"PUBLISH {p} {c['file']}")
-   r=youtube(c) if p=="youtube" else tiktok(c) if p=="tiktok" else instagram(c)
-   print(json.dumps({"publicationResult":r,"clipFile":c["file"],"platform":p}))
-   l.setdefault("publications",[]).append({"clipFile":c["file"],"platform":p,"videoSha256":c["sha256"],"publishedAtUtc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"phase11RunId":int(os.environ["GITHUB_RUN_ID"]),"status":"published","remote":r})
-   ls=save_ledger(l,ls); print(json.dumps(r))
+   ls=publish_one(l,ls,c,p,m)
  print("PHASE11_COMPLETE")
 if __name__=="__main__":
  try: main()
