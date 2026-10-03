@@ -278,6 +278,7 @@ def main():
             "width": asset["width"],
             "height": asset["height"],
             "sourceFrameCount": asset["frameCount"],
+            "sourceMedia": {key: asset.get(key) for key in ("sourceType", "sourceUrl", "sourceFileId", "contentSha256")},
             "analysisModel": result["model"],
             "audioAnalyzed": False,
             "frames": result["frames"],

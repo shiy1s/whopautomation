@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import base64, json, os, sys, time, urllib.parse, urllib.request
+import base64, json, os, re, sys, time, urllib.parse, urllib.request
 from pathlib import Path
 
 REPO = os.environ["GITHUB_REPOSITORY"]
@@ -108,6 +108,8 @@ def write_json_to_repo(path, payload, old_sha, message):
     return gh_api(url, "PUT", body)["content"]["sha"]
 
 def validate_phase11_run():
+    if not re.fullmatch(r"[0-9]+", PHASE11_RUN_ID):
+        die("PHASE11_RUN_ID must be numeric")
     d = gh_api(f"https://api.github.com/repos/{REPO}/actions/runs/{PHASE11_RUN_ID}")
     if d.get("name") != "Phase 11 Platform Publishing":
         die("Supplied run is not Phase 11 Platform Publishing")
@@ -131,6 +133,8 @@ def youtube_snapshot(video_id, token):
     if not items:
         die(f"YouTube video {video_id} was not returned by videos.list")
     v = items[0]
+    if str(v.get("id")) != str(video_id):
+        die(f"YouTube video ID mismatch for {video_id}")
     return {
         "videoId": v["id"],
         "title": v.get("snippet", {}).get("title"),
@@ -149,17 +153,32 @@ def youtube_snapshot(video_id, token):
     }
 
 def main():
+    if PLATFORM_SELECTION not in {"youtube", "instagram", "youtube_instagram"}:
+        die("Unsupported Phase 12 tracking platform selection")
     run = validate_phase11_run()
-    ledger, _ = read_json_from_repo(str(LEDGER_PATH))
-    pubs = ledger.get("publications", [])
+    ledger, _ = read_json_from_repo(LEDGER_PATH.as_posix())
+    # A successful TEST Phase 11 has no publications. Never substitute a prior
+    # campaign/run's records and report that unrelated activity as this handoff.
+    pubs = [p for p in ledger.get("publications", [])
+            if str(p.get("phase11RunId")) == str(int(PHASE11_RUN_ID))
+            and p.get("status") == "published"]
+    requested = {"youtube", "instagram"} if PLATFORM_SELECTION == "youtube_instagram" else {PLATFORM_SELECTION}
+    pubs = [p for p in pubs if p.get("platform") in requested]
+    if not pubs:
+        die("No real publications exist for the exact Phase 11 run and selected platforms; TEST does not publish")
+    required = ("campaignId", "phase10RunId", "clipFile", "videoSha256")
+    if any(any(not p.get(k) for k in required) for p in pubs):
+        die("Publication provenance is incomplete; reconcile legacy records before tracking")
+    if len({p["campaignId"] for p in pubs}) != 1 or len({str(p["phase10RunId"]) for p in pubs}) != 1:
+        die("Phase 11 publication campaign/package provenance mismatch")
     youtube_pubs = [x for x in pubs if x.get("platform") == "youtube" and x.get("status") == "published"]
     instagram_pubs = [x for x in pubs if x.get("platform") == "instagram" and x.get("status") == "published"]
 
     snapshots = []
     if PLATFORM_SELECTION in ("youtube", "youtube_instagram"):
-        if not youtube_pubs:
+        if not youtube_pubs and PLATFORM_SELECTION == "youtube":
             die("No published YouTube records found in Phase 11 ledger")
-        token = refresh_youtube_token()
+        token = refresh_youtube_token() if youtube_pubs else None
         for p in youtube_pubs:
             remote = p.get("remote", {})
             video_id = remote.get("videoId")
@@ -168,6 +187,8 @@ def main():
             snap = youtube_snapshot(video_id, token)
             snap["clipFile"] = p["clipFile"]
             snap["videoSha256"] = p["videoSha256"]
+            snap["campaignId"] = p["campaignId"]
+            snap["phase10RunId"] = p["phase10RunId"]
             snapshots.append(snap)
 
     instagram_snapshots = []
@@ -182,6 +203,8 @@ def main():
             snap = instagram_snapshot(media_id, instagram_token)
             snap["clipFile"] = p["clipFile"]
             snap["videoSha256"] = p["videoSha256"]
+            snap["campaignId"] = p["campaignId"]
+            snap["phase10RunId"] = p["phase10RunId"]
             instagram_snapshots.append(snap)
     elif PLATFORM_SELECTION == "instagram":
         if not instagram_pubs:
@@ -196,11 +219,13 @@ def main():
             snap = instagram_snapshot(media_id, instagram_token)
             snap["clipFile"] = p["clipFile"]
             snap["videoSha256"] = p["videoSha256"]
+            snap["campaignId"] = p["campaignId"]
+            snap["phase10RunId"] = p["phase10RunId"]
             instagram_snapshots.append(snap)
 
     previous = None
     try:
-        previous, tracking_sha = read_json_from_repo(str(TRACKING_PATH))
+        previous, tracking_sha = read_json_from_repo(TRACKING_PATH.as_posix())
     except Exception as e:
         if "GitHub HTTP 404" in str(e):
             tracking_sha = None
@@ -214,8 +239,10 @@ def main():
         "status": "verified",
         "phase11RunId": int(PHASE11_RUN_ID),
         "phase11HeadSha": run["headSha"],
+        "campaignId": pubs[0]["campaignId"],
+        "phase10RunId": pubs[0]["phase10RunId"],
         "trackedAtUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "platforms": ["youtube", "instagram"] if PLATFORM_SELECTION == "youtube_instagram" else ([ "instagram" ] if PLATFORM_SELECTION == "instagram" else ["youtube"]),
+        "platforms": sorted({p["platform"] for p in pubs}),
         "videoCount": len(snapshots),
         "instagramVideoCount": len(instagram_snapshots),
         "snapshots": snapshots,
@@ -226,9 +253,9 @@ def main():
 
     message = f"Record Phase 12 YouTube tracking snapshot for Phase 11 run {PHASE11_RUN_ID}"
     if tracking_sha:
-        new_sha = write_json_to_repo(str(TRACKING_PATH), payload, tracking_sha, message)
+        new_sha = write_json_to_repo(TRACKING_PATH.as_posix(), payload, tracking_sha, message)
     else:
-        url = f"https://api.github.com/repos/{REPO}/contents/{urllib.parse.quote(str(TRACKING_PATH))}"
+        url = f"https://api.github.com/repos/{REPO}/contents/{urllib.parse.quote(TRACKING_PATH.as_posix())}"
         body = {
             "message": message,
             "content": base64.b64encode((json.dumps(payload, indent=2, sort_keys=True) + "\n").encode()).decode(),

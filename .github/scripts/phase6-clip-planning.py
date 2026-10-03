@@ -73,7 +73,14 @@ def main():
         raise RuntimeError("Phase 5 manifest does not identify campaignId.")
     rules = load(str(Path("campaign-rules") / f"{campaign_id}.json"))
     campaign_rules = rules["rules"]
-    campaign_min = max(MIN_DURATION, float(campaign_rules.get("video", {}).get("minimumDurationSeconds") or MIN_DURATION))
+    video_rules = campaign_rules.get("video", {})
+    campaign_min = float(video_rules.get("minimumDurationSeconds") if video_rules.get("minimumDurationSeconds") is not None else MIN_DURATION)
+    campaign_max = float(video_rules.get("maximumDurationSeconds") if video_rules.get("maximumDurationSeconds") is not None else MAX_RENDER_DURATION)
+    if not math.isfinite(campaign_min) or not math.isfinite(campaign_max) or min(campaign_min, campaign_max) <= 0:
+        raise RuntimeError("Campaign duration limits must be finite positive seconds.")
+    campaign_min, campaign_max = max(MIN_DURATION, campaign_min), min(MAX_RENDER_DURATION, campaign_max)
+    if campaign_min > campaign_max:
+        raise RuntimeError("Campaign duration limits conflict with the renderer bounds.")
 
     plans = []
     for index, selection in enumerate(selections, 1):
@@ -137,6 +144,7 @@ def main():
                 "fileName": str(seg.get("fileName") or analysis.get("fileName") or ""),
                 "role": str(seg.get("role") or "evidence_supported"),
                 "sourceDurationSeconds": float(analysis["durationSeconds"]),
+                "sourceMedia": dict(analysis.get("sourceMedia") or {}),
                 "startSeconds": round(start, 3),
                 "endSeconds": round(end, 3),
                 "durationSeconds": round(duration, 3),
@@ -152,8 +160,8 @@ def main():
 
         if total < campaign_min:
             raise RuntimeError(f"Clip {index} is below campaign minimum: {total}s < {campaign_min}s.")
-        if total > MAX_RENDER_DURATION:
-            raise RuntimeError(f"Clip {index} exceeds authoritative renderer ceiling: {total}s > {MAX_RENDER_DURATION}s.")
+        if total > campaign_max:
+            raise RuntimeError(f"Clip {index} exceeds campaign/renderer maximum: {total}s > {campaign_max}s.")
         if any(x["safetyFlags"] for x in planned_segments):
             raise RuntimeError(f"Clip {index} contains safety-flagged source evidence.")
 
@@ -185,6 +193,7 @@ def main():
         },
         "planningPolicy": {
             "minimumDurationSeconds": campaign_min,
+            "maximumDurationSeconds": campaign_max,
             "maximumRenderDurationSeconds": MAX_RENDER_DURATION,
             "boundaryMethod": "sampled-evidence-midpoint",
             "audioAnalyzed": False,
@@ -201,6 +210,7 @@ def main():
             "onScreenTextOptions": list(campaign_rules.get("onScreenText", {}).get("requiredLines", []) or []),
             "renderAssets": dict(campaign_rules.get("renderAssets", {}) or {}),
             "minimumDurationSeconds": campaign_min,
+            "maximumDurationSeconds": campaign_max,
             "maximumRenderDurationSeconds": MAX_RENDER_DURATION,
         },
         "clipPlanCount": len(plans),

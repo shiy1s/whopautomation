@@ -1,4 +1,5 @@
 import json
+import math
 import shutil
 from pathlib import Path
 
@@ -11,6 +12,10 @@ if not plans:
     raise RuntimeError("No Phase 6 clip plans found.")
 
 directives = plan_doc.get("renderDirectives", {})
+minimum_duration = float(directives.get("minimumDurationSeconds", MIN_DURATION))
+maximum_duration = float(directives.get("maximumDurationSeconds", MAX_DURATION))
+if not math.isfinite(minimum_duration) or not math.isfinite(maximum_duration) or not MIN_DURATION <= minimum_duration <= maximum_duration <= MAX_DURATION:
+    raise RuntimeError("Invalid campaign/renderer duration directives.")
 logo_required = bool(directives.get("logoRequired", False))
 text_required = bool(directives.get("onScreenTextRequired", False))
 text_options = [str(x).strip() for x in directives.get("onScreenTextOptions", []) if str(x).strip()]
@@ -28,7 +33,7 @@ if logo_required and (logo is None or not logo.is_file()):
 if text_required and not text_options and (campaign_text is None or not campaign_text.is_file()):
     raise RuntimeError("CAMPAIGN_ONSCREEN_TEXT_REQUIRED_BUT_NOT_PROVISIONED")
 if text_required and not text_options and campaign_text is not None and campaign_text.is_file():
-    text_options = [campaign_text.read_text(encoding="utf-8").strip()]
+    text_options = [x for x in [campaign_text.read_text(encoding="utf-8").strip()] if x]
 if text_required and not text_options:
     raise RuntimeError("CAMPAIGN_ONSCREEN_TEXT_REQUIRED_BUT_EMPTY")
 
@@ -52,7 +57,7 @@ for rank, p in enumerate(plans, 1):
         raise RuntimeError(f"Plan {p.get('planId')} has no segments.")
 
     duration = sum(float(s["endSeconds"]) - float(s["startSeconds"]) for s in segments)
-    if not MIN_DURATION <= duration <= MAX_DURATION:
+    if not minimum_duration <= duration <= maximum_duration:
         raise RuntimeError(f"Renderer-incompatible plan {p['planId']}: {duration}s")
 
     job = root / f"{rank:02d}"
