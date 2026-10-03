@@ -12,6 +12,18 @@ const isMediaUrl=u=>mediaExt.test(String(u||''))||/\.(m3u8|mpd)(?:[?#]|$)/i.test
 const probe=file=>{try{const out=cp.execFileSync('ffprobe',['-v','error','-show_entries','format=duration,size','-select_streams','v:0','-show_entries','stream=width,height','-of','json',file],{encoding:'utf8',timeout:15000,killSignal:'SIGKILL'});const d=JSON.parse(out),duration=Number(d.format?.duration||0),width=Number(d.streams?.[0]?.width||0),height=Number(d.streams?.[0]?.height||0),size=Number(d.format?.size||0);return{valid:duration>=10&&width>0&&height>0,duration,width,height,size};}catch(e){return{valid:false,error:e.message};}};
 const frames=(file,out,duration)=>{fs.mkdirSync(out,{recursive:true});const a=[];for(let i=1;i<=12;i++){const ts=(duration*i/13).toFixed(2),name='frame_'+String(i).padStart(2,'0')+'.jpg',p=path.join(out,name);cp.execFileSync('ffmpeg',['-y','-ss',ts,'-i',file,'-vframes','1','-q:v','2',p],{stdio:'ignore',timeout:45000,killSignal:'SIGKILL'});if(!fs.existsSync(p)||fs.statSync(p).size<1000)throw new Error('frame extraction failed: '+name);a.push({frameIndex:i,fileName:name,filePath:path.relative('phase4-input',p).replace(/\\/g,'/'),timestampSeconds:Number(ts),fileSizeBytes:fs.statSync(p).size});}return a;};
 const unique=a=>[...new Set(a.map(String).map(x=>x.trim()).filter(Boolean))];
+function extractAudioEvidence(file,assetId,duration,sourceContentSha256){
+  if(duration>180)return {status:'not_extracted',reason:'bounded_audio_duration_exceeds_180_seconds'};
+  const stream=cp.execFileSync('ffprobe',['-v','error','-select_streams','a:0','-show_entries','stream=index','-of','csv=p=0',file],{encoding:'utf8',timeout:15000}).trim();
+  if(!stream)return {status:'no_audio_stream'};
+  const target=path.join('phase4-input',assetId,'audio.mp3');
+  fs.mkdirSync(path.dirname(target),{recursive:true});
+  cp.execFileSync('ffmpeg',['-v','error','-y','-i',file,'-map','0:a:0','-vn','-ac','1','-ar','16000','-b:a','64k',target],{timeout:120000,killSignal:'SIGKILL'});
+  const raw=fs.readFileSync(target);
+  if(raw.length<1000||raw.length>4000000)throw new Error('AUDIO_EVIDENCE_SIZE_INVALID');
+  return {status:'extracted',filePath:path.relative('phase4-input',target).replace(/\\/g,'/'),mimeType:'audio/mpeg',
+    sourceContentSha256,sha256:require('crypto').createHash('sha256').update(raw).digest('hex'),durationSeconds:duration};
+}
 async function download(url,target){
   const signal=AbortSignal.timeout(150000);
   try {
@@ -284,9 +296,10 @@ async function main(){
     const contentSha256=hash.digest('hex');
     const assetId=v.sourceFileId?driveAssetId(v.sourceFileId):v.sourceType.toLowerCase()+'-'+crypto.createHash('sha256').update(v.identity).digest('hex').slice(0,16);
     const fr=frames(v.file,path.join('phase4-input',assetId,'frames'),v.probe.duration);
+    const audioEvidence=extractAudioEvidence(v.file,assetId,v.probe.duration,contentSha256);
     results.push({assetId,fileName:v.fileName||path.basename(v.file),durationSeconds:v.probe.duration,
       width:v.probe.width,height:v.probe.height,fileSizeBytes:v.probe.size,frameCount:fr.length,frames:fr,
-      provenance:'normalized_source_real_media_ffprobe_extracted',sourceType:v.sourceType,contentSha256,
+      provenance:'normalized_source_real_media_ffprobe_extracted',sourceType:v.sourceType,contentSha256,audioEvidence,
       sourceUrl:v.sourceUrl,sourceFileId:v.sourceFileId,parentSourceUrl:v.parentSourceUrl,
       relativePath:v.relativePath,sourceAdapter:v.sourceAdapter});
   }

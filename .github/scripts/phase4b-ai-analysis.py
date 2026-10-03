@@ -6,6 +6,7 @@ from pathlib import Path
 
 from google import genai
 from google.genai import types
+from phase4b_audio import load_audio, normalize_transcript
 
 
 MODELS = [
@@ -271,6 +272,26 @@ def main():
     total = 0
     for asset in manifest["results"]:
         result = analyze_asset(client, asset, campaign_rules)
+        audio = load_audio(asset)
+        speech = None
+        if audio is not None:
+            # Separate audio request: visual frame descriptions remain image-grounded.
+            response = client.models.generate_content(
+                model=result['model'],
+                contents=[
+                    'Transcribe only clearly audible speech from this real source audio. '
+                    'Return JSON {"language":"English or detected language","segments":'
+                    '[{"startSeconds":0.0,"endSeconds":1.0,"text":"actual words"}]}. '
+                    'Use short sentence segments in chronological order, no overlapping timestamps. '
+                    'Do not invent speech for music or silence. Do not paraphrase. '
+                    f'Audio duration is {asset["durationSeconds"]} seconds. Preserve spoken calls to action.',
+                    types.Part.from_bytes(data=audio, mime_type='audio/mpeg')],
+                config=types.GenerateContentConfig(response_mime_type='application/json'))
+            speech = normalize_transcript(json.loads(response.text), float(asset['durationSeconds']))
+            speech.update({'model': result['model'], 'audioSha256': asset['audioEvidence']['sha256'],
+                           'sourceContentSha256': asset['contentSha256']})
+        if campaign_rules.get('rules', {}).get('audio', {}).get('speechEvidenceRequired') and not speech:
+            raise RuntimeError('CAMPAIGN_SPEECH_EVIDENCE_REQUIRED: regenerate bounded Phase 4A audio evidence.')
         asset_output = {
             "assetId": asset["assetId"],
             "fileName": asset["fileName"],
@@ -280,7 +301,8 @@ def main():
             "sourceFrameCount": asset["frameCount"],
             "sourceMedia": {key: asset.get(key) for key in ("sourceType", "sourceUrl", "sourceFileId", "contentSha256")},
             "analysisModel": result["model"],
-            "audioAnalyzed": False,
+            "audioAnalyzed": speech is not None,
+            "speechEvidence": speech,
             "frames": result["frames"],
         }
         save_json(
@@ -327,7 +349,7 @@ def main():
             "provider": "Google Gemini",
             "modelsUsed": sorted({a["analysisModel"] for a in analyses}),
             "frameBased": True,
-            "audioAnalyzed": False,
+            "audioAnalyzed": all(a['audioAnalyzed'] for a in analyses),
             "assetCount": len(analyses),
             "frameCount": total,
         },

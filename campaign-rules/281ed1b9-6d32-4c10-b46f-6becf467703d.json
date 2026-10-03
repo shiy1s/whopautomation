@@ -1,0 +1,57 @@
+{
+  "schemaVersion": "4.2",
+  "campaignId": "281ed1b9-6d32-4c10-b46f-6becf467703d",
+  "campaignName": "Scroll The Bible",
+  "sourceDocumentUrl": "https://docs.google.com/document/d/1PJvQjaaODB5A0EmU6KgvkA-l-sRe3TBOww77QJmEYFk/edit",
+  "reviewedAt": "2026-10-03",
+  "reviewScope": "Manual extraction from both complete official briefs; TEST only. No account or audience compliance asserted.",
+  "rules": {
+    "source": "reviewed_official_campaign_documents",
+    "sourceDocuments": [
+      "https://docs.google.com/document/d/1PJvQjaaODB5A0EmU6KgvkA-l-sRe3TBOww77QJmEYFk/edit",
+      "https://docs.google.com/document/d/1P83QjalpCN1EvuggKKBN4jEh0qN3_y4SCTtQquP1jec/edit"
+    ],
+    "content": {
+      "officialFootageOnly": true,
+      "externalFootageForbidden": true,
+      "aiGeneratedClipsForbidden": true,
+      "creatorRequirements": ["Dedicated Scroll The Bible page and prescribed account setup", "24-48 hour warm-up before uploading", "Daily story requirement", "Real audience must be at least 50% USA/CA/AU/UK/NZ", "At least 1% likes relative to views"],
+      "topic": {"campaignTopic": "Scroll The Bible app"}
+    },
+    "accountEligibility": {"newAccountsExplicitlyAllowed": true, "accountSetupVerified": false, "audienceEvidenceStatus": "unavailable_not_established", "audienceComplianceVerified": false},
+    "platforms": {
+      "youtubeShorts": {"allowed": true, "forbidden": false, "accountTag": "@scrollthebibleapp"},
+      "instagram": {"allowed": true, "forbidden": false, "accountTag": "@scrollthebibleapp"},
+      "tiktok": {"allowed": true, "forbidden": false, "accountTag": "@scrollthebibleapp"}
+    },
+    "caption": {
+      "mustGiveContext": true,
+      "contextText": "Scroll The Bible lets you swipe through scripture.",
+      "contextEvidence": {"sourceUrl": "https://contentrewards.com/discover/281ed1b9-6d32-4c10-b46f-6becf467703d", "basis": "Public campaign description names the app and scripture-swiping function."},
+      "requiredCallToAction": "Download Scroll The Bible, available on the App Store & Play Store.",
+      "requiredHashtags": [],
+      "hookRequired": true,
+      "providedHooksOnly": true
+    },
+    "video": {"minimumDurationSeconds": 10, "maximumDurationSeconds": null, "englishOnly": true},
+    "audio": {"originalAudioMustRemainAudible": true, "speechEvidenceRequired": true, "preserveSpokenAppCallToAction": true, "phonkMusicForbidden": true},
+    "branding": {"logoRequired": false, "providedTemplateRequired": true},
+    "onScreenText": {"required": false, "requiredLines": [], "instruction": "Use the official provided hook embedded in the required template, never an invented hook."},
+    "renderAssets": {
+      "template": {
+        "sourceUrl": "https://drive.google.com/file/d/1vDlb2os5KsPG6bOSbUqu586Jx0oUVF40/view",
+        "sourceFileId": "1vDlb2os5KsPG6bOSbUqu586Jx0oUVF40",
+        "sha256": "6e504600c073d4e28a12e9f8b00d6abadbb3e8454b2350b092e35ac6e78cce46",
+        "width": 1080, "height": 1920,
+        "videoRect": {"x": 0, "y": 536, "width": 1080, "height": 1080},
+        "fit": "cover",
+        "cropX": 0.5, "cropY": 0.5,
+        "provenance": "Official content strategy clipping folder > Twitter Handles & Hooks > Concept Reveal Hooks > #1.png"
+      }
+    },
+    "publishing": {"testOnly": true, "paidBoostingForbidden": true, "pinnedCommentRequired": true, "pinnedCommentText": "This app is called Scroll The Bible, available on the App Store.", "bioCallToActionRequired": true, "dailyStoryRequired": true},
+    "originality": {"originalEditRequired": true},
+    "assetSource": {"sourceType": "GoogleDriveFile", "sourceUrl": "https://drive.google.com/file/d/1LaujoViPQ_ac0sdBqhv_DbvOJqDmhoyv/view", "officialContentFolderUrl": "https://drive.google.com/drive/folders/15Ob_DQNHSBxPMM4GuUeTO_losAsQcVL2"},
+    "extraction": {"unresolvedRequirements": ["Finished template composition and spoken CTA require review", "Account setup, audience geography and engagement remain unverified", "Confirm platform-specific official account handle before publishing; campaign card uses @scrollthebibleapp while provided template displays @scrollthebible", "Campaign requests removal of negative pricing comments; any moderation requires separate review and authorization"]}
+  }
+}
