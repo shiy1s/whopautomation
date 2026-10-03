@@ -4,7 +4,8 @@ from pathlib import Path
 
 ROOT=Path(os.environ.get("PACKAGE_DIR","phase10"))
 REPO=os.environ["GITHUB_REPOSITORY"]; TOKEN=os.environ["GH_TOKEN"]
-PLATFORMS=[x for x in os.environ.get("PLATFORMS","all").split(",") if x]
+PLATFORM_INPUT=os.environ.get("PLATFORMS","all")
+PLATFORMS=list(dict.fromkeys(x.strip().lower() for x in PLATFORM_INPUT.split(",") if x.strip()))
 if PLATFORMS==["all"]: PLATFORMS=["youtube","instagram"]
 
 def die(s): raise RuntimeError(s)
@@ -64,7 +65,30 @@ def save_ledger(l,oldsha):
 def duplicate(l,c,p):
  return any(x.get("platform")==p and x.get("videoSha256")==c["sha256"] and x.get("status")=="published" for x in l.get("publications",[]))
 
+def selected_platforms(m):
+ supported={"youtube","instagram","tiktok"}
+ if not PLATFORMS or not set(PLATFORMS).issubset(supported): die("Unsupported or empty publishing platform selection")
+ allowed=m.get("publishingPolicy",{}).get("approvedPlatforms")
+ if allowed is None: return PLATFORMS
+ if not isinstance(allowed,list) or not allowed or any(p not in supported for p in allowed): die("Invalid campaign approvedPlatforms policy")
+ selected=[p for p in PLATFORMS if p in allowed] if PLATFORM_INPUT.strip().lower()=="all" else PLATFORMS
+ if not selected or not set(selected).issubset(allowed): die("Requested publishing platform is not approved by the campaign")
+ aliases={"youtubeShorts":"youtube","youtube":"youtube","instagram":"instagram","tiktok":"tiktok"}
+ for clip in m.get("clips",[]):
+  clip_allowed={aliases.get(p) for p in clip.get("platforms",[])}
+  if not set(selected).issubset(clip_allowed): die(f"Clip lacks approved platform metadata: {clip['file']}")
+ return selected
+
+def production_blockers(m):
+ policy=m.get("publishingPolicy",{})
+ reasons=[]
+ if not policy.get("approvedPlatforms"): reasons.append("Campaign approved platforms have not been verified")
+ if policy.get("creativeReviewRequired") and policy.get("campaignRequirementsVerified") is not True:
+  reasons.append("Campaign creative requirements still require evidence-based review")
+ return reasons
+
 def publish_one(l,ls,c,p,m):
+ if p not in {"youtube","instagram","tiktok"}: die("Unsupported publishing platform")
  if any(x.get("platform")==p and x.get("videoSha256")==c["sha256"] and x.get("status") in {"publishing","needs_manual_verification"} for x in l.get("publications",[])):
   die(f"Unresolved publication for {p} {c['file']}; reconcile the original attempt before retrying")
  record={"clipFile":c["file"],"platform":p,"videoSha256":c["sha256"],"campaignId":m.get("campaignId"),"phase10RunId":os.environ.get("PHASE10_RUN_ID"),"phase11RunId":int(os.environ["GITHUB_RUN_ID"]),"status":"publishing","attemptedAtUtc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}
@@ -200,23 +224,30 @@ def instagram(c):
  return {"mediaId":media_id,"containerId":cid,"permalink":permalink}
 def main():
  m=manifest()
+ platforms=selected_platforms(m)
+ blockers=production_blockers(m)
+ if "tiktok" in platforms: blockers.append("TikTok publication completion verification is not implemented")
+ confirm=os.getenv("CONFIRM_PUBLISH","").strip()
+ if confirm=="PUBLISH" and blockers: die("Publishing locked: "+"; ".join(blockers))
  req={"youtube":["YOUTUBE_CLIENT_ID","YOUTUBE_CLIENT_SECRET","YOUTUBE_REFRESH_TOKEN"],"tiktok":["TIKTOK_CLIENT_KEY","TIKTOK_CLIENT_SECRET","TIKTOK_REFRESH_TOKEN"],"instagram":["INSTAGRAM_ACCESS_TOKEN","INSTAGRAM_USER_ID"]}
- for p in PLATFORMS:
+ for p in platforms:
   miss=[x for x in req[p] if not os.getenv(x)]
   if p=="tiktok" and os.getenv("TIKTOK_ACCESS_TOKEN"): miss=[]
   if miss: die(f"{p} credential preflight failed: missing {', '.join(miss)}")
  if os.getenv("PHASE11_PREFLIGHT")=="1":
-  if "youtube" in PLATFORMS:
+  if "youtube" in platforms:
    youtube_preflight()
-  if "instagram" in PLATFORMS:
+  if "instagram" in platforms:
    instagram_preflight()
-  print(json.dumps({"preflight":"pass","platforms":PLATFORMS,"clipCount":len(m.get("clips",[])),"phase9RunId":m["phase9RunId"]})); return
- confirm=os.getenv("CONFIRM_PUBLISH","").strip()
+  if os.getenv("GITHUB_ENV"):
+   with open(os.environ["GITHUB_ENV"],"a",encoding="utf-8") as f: f.write("PHASE11_SELECTED_PLATFORMS="+",".join(platforms)+"\n")
+  print(json.dumps({"preflight":"pass","platforms":platforms,"clipCount":len(m.get("clips",[])),"phase9RunId":m["phase9RunId"],"publishingPolicyReady":not blockers,"productionBlockers":blockers,"tiktokApi":"not_checked" if "tiktok" in platforms else "not_selected"})); return
  if confirm.lower()=="test":
-  print(json.dumps({"dryRun":"pass","platforms":PLATFORMS,"clipCount":len(m["clips"]),"phase9RunId":m["phase9RunId"],"publishingSkipped":True})); return
+  print(json.dumps({"dryRun":"pass","platforms":platforms,"clipCount":len(m["clips"]),"phase9RunId":m["phase9RunId"],"publishingSkipped":True,"publishingPolicyReady":not blockers,"productionBlockers":blockers})); return
  if confirm!="PUBLISH": die("Publishing locked: set confirm_publish=PUBLISH")
+ if blockers: die("Publishing locked: "+"; ".join(blockers))
  l,ls=ledger()
- for p in PLATFORMS:
+ for p in platforms:
   for c in m["clips"]:
    if duplicate(l,c,p): print(f"SKIP duplicate: {p} {c['file']}"); continue
    print(f"PUBLISH {p} {c['file']}")

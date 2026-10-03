@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import math
 import re
 from pathlib import Path
 
@@ -25,6 +26,14 @@ if not RULES_PATH.is_file():
     raise RuntimeError(f"Missing campaign rules: {RULES_PATH}")
 rules_doc=json.loads(RULES_PATH.read_text(encoding="utf-8"))
 rules=rules_doc["rules"]
+video_rules=rules.get("video",{})
+minimum_duration=float(video_rules.get("minimumDurationSeconds") if video_rules.get("minimumDurationSeconds") is not None else 10)
+maximum_duration=float(video_rules.get("maximumDurationSeconds") if video_rules.get("maximumDurationSeconds") is not None else 60)
+if not math.isfinite(minimum_duration) or not math.isfinite(maximum_duration) or min(minimum_duration,maximum_duration)<=0:
+    raise RuntimeError("Campaign duration limits must be finite positive seconds.")
+minimum_duration,maximum_duration=max(10,minimum_duration),min(60,maximum_duration)
+if minimum_duration>maximum_duration:
+    raise RuntimeError("Campaign duration limits conflict with the renderer bounds.")
 campaign_name=str(rules_doc.get("campaignName") or rules.get("campaignName") or "Campaign").strip()
 # Never leak another campaign's repository-global text into this package.
 caption=rules.get("caption",{})
@@ -39,18 +48,28 @@ account_tags={
     "tiktok": platforms.get("tiktok",{}).get("accountTag"),
 }
 disclosure=rules.get("disclosure",{}).get("selected") if rules.get("disclosure",{}).get("required") else None
-raw_text=str(rules.get("rawText") or "")
-found_tags=[]
-for tag in re.findall(r"#[A-Za-z0-9_]{2,50}",raw_text):
-    if tag.lower() not in {x.lower() for x in found_tags}:
-        found_tags.append(tag)
-if not found_tags:
-    slug=re.sub(r"[^A-Za-z0-9]+","",campaign_name)
-    if slug:
-        found_tags=[("#"+slug[:40])]
-if not found_tags:
-    found_tags=["#ContentRewards"]
-HASHTAGS=found_tags[:3]
+if rules.get("disclosure",{}).get("required") and (not isinstance(disclosure,str) or not disclosure.strip()):
+    raise RuntimeError("Campaign requires disclosure, but disclosure.selected is missing.")
+disclosure=disclosure.strip() if disclosure else None
+disclosure_placement=rules.get("disclosure",{}).get("placement") or "first_separate_line"
+if disclosure and disclosure_placement not in ("first_separate_line","first_hashtag_after_text"):
+    raise RuntimeError("Campaign disclosure placement needs explicit supported normalization.")
+HASHTAGS=[]
+for tag in caption.get("requiredHashtags",[]):
+    if not isinstance(tag,str) or not re.fullmatch(r"#[A-Za-z0-9_]{1,100}",tag):
+        raise RuntimeError("Invalid required campaign hashtag.")
+    if tag.lower() not in {x.lower() for x in HASHTAGS}: HASHTAGS.append(tag)
+forbidden_tags={str(x).lower() for x in caption.get("forbiddenHashtags",[])}
+if any(x.lower() in forbidden_tags for x in HASHTAGS) or (disclosure and disclosure.lower() in forbidden_tags):
+    raise RuntimeError("Required hashtag/disclosure conflicts with a forbidden hashtag.")
+# Do not infer hashtags from arbitrary brief text: it can contain forbidden
+# examples, optional tags, source snippets, or disclosure tokens.
+if disclosure_placement=="first_hashtag_after_text" and disclosure:
+    if HASHTAGS and HASHTAGS[0].lower()!=disclosure.lower():
+        raise RuntimeError("Disclosure placement conflicts with required hashtag order.")
+    HASHTAGS=[disclosure]+[x for x in HASHTAGS if x.lower()!=disclosure.lower()]
+approved_platforms=[p for p in ("youtubeShorts","tiktok","instagram")
+                    if platforms.get(p,{}).get("allowed") is True and not platforms.get(p,{}).get("forbidden")]
 
 def clean_title(index):
     base=re.sub(r"\s+"," ",campaign_name).strip()
@@ -59,23 +78,24 @@ def clean_title(index):
 
 def body_text(index, platform):
     parts=[]
-    if disclosure: parts.append(disclosure)
+    if disclosure and disclosure_placement=="first_separate_line": parts.append(disclosure)
     if account_tags[platform]: parts.append(str(account_tags[platform]))
     parts.append(campaign_name)
-    if campaign_text: parts.append(campaign_text[:600])
-    parts.append(" ".join(HASHTAGS))
+    if campaign_text: parts.append(campaign_text)
+    final_tags=[tag for tag in HASHTAGS if not (disclosure and disclosure_placement=="first_separate_line" and tag.lower()==disclosure.lower())]
+    if final_tags: parts.append(" ".join(final_tags))
     return "\n".join(parts)
 
 metadata=[]
 for index,report in enumerate(clip_reports,1):
     filename=report["file"]
     duration=float(report["durationSeconds"])
-    if not 10.0<=duration<=60.0:
+    if not minimum_duration<=duration<=maximum_duration:
         raise RuntimeError(f"{filename}: duration outside publishing bounds.")
-    if not all(report.get("checks",{}).values()):
+    if not report.get("checks") or not all(report["checks"].values()):
         raise RuntimeError(f"{filename}: Phase 8 contains a failed deterministic check.")
     text=body_text(index,"youtubeShorts")
-    if disclosure and not text.startswith(disclosure+"\n"):
+    if disclosure and disclosure_placement=="first_separate_line" and not text.startswith(disclosure+"\n"):
         raise RuntimeError(f"{filename}: disclosure is not first separate line.")
     item={
         "clipNumber":index,
@@ -85,6 +105,7 @@ for index,report in enumerate(clip_reports,1):
         "campaignName":rules_doc["campaignName"],
         "sourcePhase":8,
         "metadataPolicy":"generic_campaign_rules_v2",
+        "approvedPlatforms":approved_platforms,
         "youtubeShorts":{
             "requiredAccountTag":account_tags["youtubeShorts"],
             "title":clean_title(index),
@@ -92,18 +113,24 @@ for index,report in enumerate(clip_reports,1):
             "tags":[x.lstrip("#") for x in HASHTAGS],
             "hashtags":HASHTAGS,
             "ftcDisclosure":disclosure,
+            "disclosurePlacement":disclosure_placement if disclosure else None,
+            "allowed": "youtubeShorts" in approved_platforms,
         },
         "tiktok":{
             "requiredAccountTag":account_tags["tiktok"],
             "caption":body_text(index,"tiktok"),
             "hashtags":HASHTAGS,
             "ftcDisclosure":disclosure,
+            "disclosurePlacement":disclosure_placement if disclosure else None,
+            "allowed": "tiktok" in approved_platforms,
         },
         "instagram":{
             "requiredAccountTag":account_tags["instagram"],
             "caption":body_text(index,"instagram"),
             "hashtags":HASHTAGS,
             "ftcDisclosure":disclosure,
+            "disclosurePlacement":disclosure_placement if disclosure else None,
+            "allowed": "instagram" in approved_platforms,
         },
     }
     metadata.append(item)
@@ -124,7 +151,8 @@ manifest={
         "sourceOfTruth":"persisted_campaign_rules_and_phase8_qc",
         "ftcDisclosure":disclosure,
         "requiredAccountTags":account_tags,
-        "additionalHashtagLimit":3,
+        "requiredHashtags":HASHTAGS,
+        "approvedPlatforms":approved_platforms,
         "genericCampaignSupport":True,
     },
     "campaignCompliance":{
@@ -132,9 +160,10 @@ manifest={
         "requiredAccountTags":account_tags,
         "ftcDisclosureRequired":bool(rules.get("disclosure",{}).get("required")),
         "ftcDisclosurePlacement":rules.get("disclosure",{}).get("placement"),
-        "onScreenTextVerifiedInPhase8":phase8.get("campaignCompliance",{}).get("requiredOnScreenTextSampledVisible",True),
-        "logoVerifiedInPhase8":phase8.get("campaignCompliance",{}).get("logoSampledVisible",True),
-        "minimumDurationSeconds":rules.get("video",{}).get("minimumDurationSeconds") or 10,
+        "onScreenTextVerifiedInPhase8":phase8.get("campaignCompliance",{}).get("requiredOnScreenTextSampledVisible"),
+        "logoVerifiedInPhase8":phase8.get("campaignCompliance",{}).get("logoSampledVisible"),
+        "minimumDurationSeconds":minimum_duration,
+        "maximumDurationSeconds":maximum_duration,
         "englishOnly":rules.get("video",{}).get("englishOnly",False),
         "originalAudioMustRemainAudible":rules.get("audio",{}).get("originalAudioMustRemainAudible",False),
     },

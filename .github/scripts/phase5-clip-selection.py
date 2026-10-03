@@ -1,5 +1,6 @@
 import json
 import hashlib
+import math
 import os
 import time
 from pathlib import Path
@@ -23,6 +24,18 @@ def load(path):
 def save(obj, path):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(json.dumps(obj, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def duration_bounds(rules):
+    video = rules.get("rules", rules).get("video", {})
+    low = float(video.get("minimumDurationSeconds") if video.get("minimumDurationSeconds") is not None else MIN_DURATION)
+    high = float(video.get("maximumDurationSeconds") if video.get("maximumDurationSeconds") is not None else MAX_DURATION)
+    if not math.isfinite(low) or not math.isfinite(high) or low <= 0 or high <= 0:
+        raise RuntimeError("Campaign duration limits must be finite positive seconds.")
+    low, high = max(MIN_DURATION, low), min(MAX_DURATION, high)
+    if low > high:
+        raise RuntimeError("Campaign duration limits conflict with the renderer bounds.")
+    return low, high
 
 
 def require_key():
@@ -142,6 +155,7 @@ def generate_candidates(asset):
 
 
 def ai_plan(client, campaign_rules, candidate_index):
+    campaign_min, campaign_max = duration_bounds(campaign_rules)
     prompt = f"""
 You are the Phase 5 content-planning decision engine for a production short-form video pipeline.
 
@@ -172,7 +186,7 @@ IMPORTANT:
 - Respect every persisted campaign rule above. If a candidate or combination conflicts with a campaign rule, reject it.
 - Respect the campaign's source/footage restrictions, content restrictions, duration rules, language rules, branding rules, and any other persisted requirements.
 - Phase 4B is frame-based; do not claim audio was heard.
-- Total final duration of each proposed clip must be at least the campaign minimum and no more than 60 seconds because 60s is the authoritative renderer ceiling.
+- Total final duration of each proposed clip must be at least {campaign_min} seconds and no more than {campaign_max} seconds, respecting the campaign limit and the 60s renderer ceiling.
 - Do not create duplicate or near-duplicate clip plans.
 - Do not select more than one overlapping segment from the same asset in a single clip.
 - Prefer fewer strong clips over many weak clips.
@@ -261,12 +275,13 @@ def main():
     if not campaign_id:
         raise RuntimeError("Phase 4B manifest does not identify campaignId.")
     rules = load(str(Path("campaign-rules") / f"{campaign_id}.json"))
+    campaign_min, campaign_max = duration_bounds(rules)
     client = genai.Client(api_key=require_key())
 
     candidate_index = []
     for asset in assets:
         candidates = generate_candidates(asset)
-        eligible = [c for c in candidates if not c["safetyFlags"] and c["durationSeconds"] >= MIN_DURATION]
+        eligible = [c for c in candidates if not c["safetyFlags"] and MIN_DURATION <= c["durationSeconds"] <= campaign_max]
         for c in eligible:
             candidate_index.append(c)
 
@@ -275,7 +290,6 @@ def main():
 
     decision = ai_plan(client, rules, candidate_index)
     by_id = {c["candidateId"]: c for c in candidate_index}
-    campaign_min = max(MIN_DURATION, float(rules.get("rules", {}).get("video", {}).get("minimumDurationSeconds") or MIN_DURATION))
 
     plans = []
     used_asset_windows = []
@@ -310,8 +324,8 @@ def main():
 
         if total < campaign_min:
             raise RuntimeError(f"AI clip plan {idx} is below campaign minimum duration: {total}s < {campaign_min}s.")
-        if total > MAX_DURATION:
-            raise RuntimeError(f"AI clip plan {idx} exceeds renderer maximum duration: {total}s > {MAX_DURATION}s.")
+        if total > campaign_max:
+            raise RuntimeError(f"AI clip plan {idx} exceeds campaign/renderer maximum duration: {total}s > {campaign_max}s.")
         if any(seg["safetyFlags"] for seg in segments):
             raise RuntimeError(f"AI clip plan {idx} contains a safety-flagged segment.")
 
@@ -347,6 +361,7 @@ def main():
         },
         "selectionPolicy": {
             "minimumDurationSeconds": campaign_min,
+            "maximumDurationSeconds": campaign_max,
             "rendererMaximumDurationSeconds": MAX_DURATION,
             "selectionIsEvidenceBacked": True,
             "audioAnalyzed": False,

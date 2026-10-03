@@ -45,6 +45,9 @@ required_text = campaign_rules.get("onScreenText", {}).get("requiredLines", [])
 logo_required = bool(campaign_rules.get("branding", {}).get("logoRequired"))
 text_required = bool(campaign_rules.get("onScreenText", {}).get("required"))
 minimum_duration = max(MIN_DURATION, float(campaign_rules.get("video", {}).get("minimumDurationSeconds") or 10))
+maximum_duration = min(MAX_DURATION, float(campaign_rules.get("video", {}).get("maximumDurationSeconds") if campaign_rules.get("video", {}).get("maximumDurationSeconds") is not None else MAX_DURATION))
+if not math.isfinite(minimum_duration) or not math.isfinite(maximum_duration) or not MIN_DURATION <= minimum_duration <= maximum_duration <= MAX_DURATION:
+    raise RuntimeError("Invalid campaign/renderer duration limits.")
 require_audio = bool(campaign_rules.get("audio", {}).get("originalAudioMustRemainAudible", False))
 branding_required = bool(logo_required or text_required)
 if bool(phase7.get("originalAudioPreserved", False)) != require_audio:
@@ -184,7 +187,8 @@ for video in videos:
     fps = rate_value(v.get("avg_frame_rate"))
 
     checks = {
-        "duration10to60": max(MIN_DURATION, minimum_duration) <= duration <= MAX_DURATION,
+        "duration10to60": MIN_DURATION <= duration <= MAX_DURATION,
+        "campaignDurationLimits": minimum_duration <= duration <= maximum_duration,
         "vertical1080x1920": int(v.get("width") or 0) == WIDTH and int(v.get("height") or 0) == HEIGHT,
         "bitrateAtLeast500kbps": bitrate >= MIN_BITRATE,
         "h264Video": v.get("codec_name") == "h264",
@@ -322,6 +326,7 @@ out = {
         "requiredOnScreenText": expected_text,
         "requiredOnScreenTextSampledVisible": True,
         "minimumDurationSeconds": minimum_duration,
+        "maximumDurationSeconds": maximum_duration,
         "englishOnly": campaign_rules.get("video", {}).get("englishOnly", False),
     },
 }

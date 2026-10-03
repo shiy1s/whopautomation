@@ -1,0 +1,9 @@
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const code=fs.readFileSync(require('node:path').join(__dirname,'../docs/n8n/campaign-candidate-parser.js'),'utf8');
+// Isolated public-page schema fixtures, never campaign evidence.
+const id='11111111-1111-1111-1111-111111111111';
+const card=()=>({id,name:'Unit',status:'active',budgetCents:8500000,metrics:{budgetSpentCents:1940996},payouts:[{platform:'youtube',payoutType:'cpm',rateCents:50}],referenceMaterials:[{url:'https://www.dropbox.com/s/unit/video.mp4'},{url:'https://youtu.be/unit'}],contentRequirements:{items:['Include demographic information']}});
+function run(c,extra=''){const data='<script type="application/ld+json">'+JSON.stringify({'@type':'Product',url:'https://contentrewards.com/discover/'+id})+'</script><script>self.__next_f.push('+JSON.stringify([1,JSON.stringify({card:c})])+')</script>'+extra;return vm.runInNewContext('(function(){'+code+'})()',{$json:{data,campaignId:id}}).json;}
+test('campaign card keeps cents, supported references and proof requirements',()=>{const r=run(card(),'Budget $19,410 $65,590 remaining');assert.equal(r.campaign.budget.totalCents,8500000);assert.equal(r.campaign.budget.remainingCents,6559004);assert.equal(r.campaign.referenceMaterials.length,2);assert.match(r.campaign.detailText,/demographic/);});
+test('unrelated cards and malformed budgets never become eligible campaigns',()=>{const c=card();c.id='22222222-2222-2222-2222-222222222222';assert.equal(run(c).skip,true);c.id=id;c.metrics.budgetSpentCents=9000000;assert.equal(run(c).skipReason,'campaign_budget_invalid');});
+test('campaign references reject invalid URLs and duplicate identities',()=>{const c=card();c.referenceMaterials=[{url:'javascript:alert(1)'},{url:'https://example.test/file.mp4'},{url:'https://example.test/file.mp4'}];assert.equal(run(c).campaign.referenceMaterials.length,1);});

@@ -10,6 +10,7 @@ from playwright.sync_api import sync_playwright
 REPO=os.environ.get("GITHUB_REPOSITORY","shiy1s/whopautomation")
 BASE="https://contentrewards.com"
 QUEUE="state/phase14-content-rewards-submissions.json"
+PUBLICATIONS="state/phase11-publication-ledger.json"
 MAX_AGE=int(os.environ.get("MAX_AGE_MINUTES","30"))
 ARTIFACTS=Path(os.environ.get("ARTIFACT_DIR","phase14-playwright-artifacts"))
 
@@ -88,6 +89,32 @@ def campaign_url(cid):
     if not re.fullmatch(r"[0-9a-fA-F-]{36}",cid): die(f"Invalid campaign UUID: {cid}")
     return f"{BASE}/discover/{cid}"
 
+def post_identity(platform,url):
+    patterns={"youtube":r"https://(?:www\.)?youtube\.com/shorts/([A-Za-z0-9_-]+)(?:\?.*)?",
+              "instagram":r"https://(?:www\.)?instagram\.com/reel/([A-Za-z0-9_-]+)/?(?:\?.*)?"}
+    match=re.fullmatch(patterns.get(platform,r"(?!)"),str(url))
+    if not match: die("Invalid exact public post URL in submission queue")
+    return match.group(1)
+
+def verify_publication(item):
+    """Recheck queue provenance immediately before any browser action."""
+    platform=item["platform"]; post_id=post_identity(platform,item["postUrl"])
+    run=str(item.get("phase11RunId", ""))
+    if not run.isdigit() or not item.get("videoSha256"):
+        die("Submission queue is missing publication provenance")
+    d=gh("contents/"+PUBLICATIONS)
+    pubs=json.loads(base64.b64decode(d["content"]).decode()).get("publications",[])
+    matched=[p for p in pubs if p.get("status")=="published" and p.get("platform")==platform
+             and str(p.get("phase11RunId"))==run and p.get("videoSha256")==item["videoSha256"]
+             and p.get("campaignId")==item["campaignId"]]
+    if len(matched)!=1: die("Submission does not match exactly one verified campaign publication")
+    p=matched[0]; remote=p.get("remote",{})
+    remote_id=remote.get("videoId") if platform=="youtube" else post_identity(platform,remote.get("permalink"))
+    if post_id!=remote_id or p.get("publishedAtUtc")!=item.get("publishedAtUtc"):
+        die("Submission URL or timestamp mismatches the exact publication")
+    if platform=="youtube" and remote.get("privacyStatus")!="public":
+        die("Submission requires a verified public YouTube publication")
+
 def process(page,item,dry):
     cid=item["campaignId"]; platform=item["platform"]; clip=item["clipFile"]; post=item["postUrl"]
     if platform not in {"youtube","instagram"}: die(f"Unsupported platform: {platform}")
@@ -95,26 +122,27 @@ def process(page,item,dry):
     if platform not in allowed: die(f"Platform {platform} is not allowed by the selected campaign")
     age=(now()-parse_utc(item["publishedAtUtc"])).total_seconds()/60
     if age < -2 or age > MAX_AGE: raise RuntimeError(f"outside_submission_window:{age:.2f}")
+    verify_publication(item)
     page.goto(campaign_url(cid),wait_until="domcontentloaded",timeout=45000); page.wait_for_timeout(1200)
     auth_check(page)
     if cid.lower() not in page.url.lower(): die(f"Campaign navigation mismatch: {page.url}")
     text=body_text(page)
-    if not re.search(r"youtube|instagram",text,re.I): die("Campaign page does not expose a supported platform")
+    if not re.search(re.escape(platform),text,re.I): die("Campaign page does not expose the queued platform")
     if re.search(r"apply to join|apply now|application required",text,re.I) and not re.search(r"joined|submit",text,re.I): die("Campaign requires application/join approval")
     submit=submit_control(page)
     if dry:
         artifact(page,f"preflight-{cid}-{platform}-{clip}")
-        return {"status":"validated","campaignId":cid,"platform":platform,"clipFile":clip,"postUrl":post}
+        return {"status":"validated","validationStage":"campaign_page_preflight","submissionFormVerified":False,"campaignId":cid,"platform":platform,"clipFile":clip,"postUrl":post}
     submit.click(timeout=10000); page.wait_for_timeout(400)
     field=url_field(page); field.fill(post)
     box=requirements_checkbox(page)
     if not box.is_checked(): box.check()
     final=submit_control(page)
     if not final.is_enabled(): die("Submit control remains disabled after validation")
-    before=page.url; final.click(timeout=10000); page.wait_for_timeout(1500)
+    final.click(timeout=10000); page.wait_for_timeout(1500)
     after=body_text(page)
     if re.search(r"already submitted|invalid|not eligible|rejected|submission failed|error",after,re.I): raise RuntimeError("submission_error_or_rejection_signal")
-    if not re.search(r"submitted|under review|pending|submission received|success",after,re.I) and page.url==before: raise RuntimeError("submission_confirmation_not_verified")
+    if not re.search(r"successfully submitted|submitted successfully|submission received|submitted for review|(?:clip|post|content) (?:has been |was )?submitted",after,re.I): raise RuntimeError("submission_confirmation_not_verified")
     artifact(page,f"submitted-{cid}-{platform}-{clip}")
     return {"status":"submitted","campaignId":cid,"platform":platform,"clipFile":clip,"postUrl":post,"resultUrl":page.url}
 
@@ -126,10 +154,16 @@ def classify(e):
 
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--dry-run",action="store_true"); a=ap.parse_args()
+    if not 1<=MAX_AGE<=30: die("MAX_AGE_MINUTES must be between 1 and 30")
     state,sha=read_queue(); pending=[x for x in state.get("submissions",[]) if x.get("status")=="queued"]
     if any(x.get("status")=="submitting" for x in state.get("submissions",[])):
         die("Unresolved submission intent; reconcile the previous browser attempt before retrying")
     if not pending: print(json.dumps({"status":"nothing_to_do","pending":0})); return
+    for item in pending:
+        if not item.get("postUrl"): continue  # process() rejects incomplete entries before navigation.
+        identity=post_identity(item.get("platform"),item["postUrl"])
+        others=[x for x in state.get("submissions",[]) if x is not item and x.get("platform")==item.get("platform") and x.get("postUrl") and post_identity(x["platform"],x["postUrl"])==identity]
+        if others: die("Duplicate or conflicting submission URL; reconcile the existing queue records")
     results=[]
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=True); ctx=browser.new_context(storage_state=storage_state()); page=ctx.new_page()

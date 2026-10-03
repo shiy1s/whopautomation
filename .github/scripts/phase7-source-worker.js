@@ -124,79 +124,17 @@ const extractFrames = (mediaPath, outDir, duration, frameCount = 12) => {
     fs.rmSync(tmpDir,{recursive:true,force:true});
     fs.mkdirSync(outDir,{recursive:true});
     fs.mkdirSync(tmpDir,{recursive:true});
-    const urls=[sourceUrl];
-    const walk=dir=>{
-      const out=[];
-      for(const ent of fs.readdirSync(dir,{withFileTypes:true})){
-        const p=path.join(dir,ent.name);
-        if(ent.isDirectory()) out.push(...walk(p)); else out.push(p);
-      }
-      return out;
-    };
-    const candidates=[];
-    const isMediaUrl=u=>/\\.(mp4|mov|m4v|webm|mkv)(?:[?#]|$)/i.test(String(u||''))||/\\.(m3u8|mpd)(?:[?#]|$)/i.test(String(u||''));
-    const collectBrowser=async url=>{
-      const browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-setuid-sandbox']});
-      const ctx=await browser.newContext({viewport:{width:1920,height:1080},userAgent:'Mozilla/5.0'});
-      const found=new Set();
-      const page=await ctx.newPage();
-      page.on('response',r=>{try{const u=r.url(),ct=String(r.headers()['content-type']||'');if(isMediaUrl(u)||/^video\\//i.test(ct))found.add(u);}catch{}});
-      await page.goto(url,{waitUntil:'networkidle',timeout:45000}).catch(()=>{});
-      await sleep(4000);
-      await browser.close();
-      return [...found];
-    };
-    for(const u of urls){
-      const lower=sourceType;
-      if(lower==='googledrive'||lower==='googledrivefile'){
-        const dir=path.join(tmpDir,'drive');fs.mkdirSync(dir,{recursive:true});
-        if(u.toLowerCase().includes('/drive/folders/')) cp.execFileSync('gdown',['--folder','--continue','--retries','3',u,'-O',dir],{stdio:'inherit'});
-        else cp.execFileSync('gdown',['--continue','--retries','3',u,'-O',path.join(dir,'source')],{stdio:'inherit'});
-        candidates.push(...walk(dir).map(file=>({file,sourceUrl:u})));
-      } else if(lower==='directfile'){
-        const file=path.join(tmpDir,'direct-source');const res=await fetch(u,{redirect:'follow'});if(!res.ok)throw new Error('DIRECT_FILE_HTTP_'+res.status);fs.writeFileSync(file,Buffer.from(await res.arrayBuffer()));candidates.push({file,sourceUrl:u});
-      } else if(lower==='youtube'){
-        const dir=path.join(tmpDir,'youtube');fs.mkdirSync(dir,{recursive:true});cp.execFileSync('yt-dlp',['--no-playlist','-f','bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b','--merge-output-format','mp4','-o',path.join(dir,'source.%(ext)s'),u],{stdio:'inherit'});candidates.push(...walk(dir).map(file=>({file,sourceUrl:u})));
-      } else {
-        for(const mediaUrl of await collectBrowser(u)){
-          const file=path.join(tmpDir,'browser_'+String(candidates.length+1)+'.mp4');
-          try{
-            if(/\\.(m3u8|mpd)(?:[?#]|$)/i.test(mediaUrl)) cp.execFileSync('ffmpeg',['-y','-i',mediaUrl,'-c','copy',file],{stdio:'ignore'});
-            else {const res=await fetch(mediaUrl,{redirect:'follow',headers:{Referer:u}});if(!res.ok)continue;fs.writeFileSync(file,Buffer.from(await res.arrayBuffer()));}
-            candidates.push({file,sourceUrl:u});
-            if(candidates.length>=requiredAssetCount)break;
-          }catch{}
-        }
-      }
-    }
-    if(candidates.length<requiredAssetCount) throw new Error('NORMALIZED_SOURCE_INSUFFICIENT_FILES: '+candidates.length+' required='+requiredAssetCount);
-    const requested=[];
-    for(const p of plans){
-      for(const s of (Array.isArray(p.segments)?p.segments:[])){
-        const aid=String(s.assetId||'').trim();
-        if(!aid || requested.some(x=>x.assetId===aid)) continue;
-        requested.push({assetId:aid,fileName:String(s.fileName||'')});
-      }
-    }
-    const selected=[];
-    for(const req of requested){
-      const wanted=path.basename(req.fileName||'').toLowerCase();
-      const match=candidates.find(x=>path.basename(x.file).toLowerCase()===wanted) ||
-                  candidates.find(x=>wanted && path.basename(x.file).toLowerCase().includes(wanted));
-      if(match && !selected.includes(match)) selected.push(match);
-    }
-    for(const item of candidates){if(selected.length>=requiredAssetCount)break;if(!selected.includes(item))selected.push(item);}
-    if(selected.length!==requiredAssetCount) throw new Error('NORMALIZED_SOURCE_ASSET_MAPPING_FAILED: '+selected.length+' required='+requiredAssetCount);
-    const assets=[];
-    for(let i=0;i<requiredAssetCount;i++){
-      const item=selected[i];
-      const probe=runFFprobe(item.file);
-      if(!probe.valid||probe.duration<10) throw new Error('NORMALIZED_SOURCE_INVALID_VIDEO: '+path.basename(item.file));
-      const target=path.join(outDir,'source_'+String(i+1).padStart(2,'0')+'.mp4');
+    const {acquireMediaAssets}=require('./phase7-media-sources');
+    const selected=await acquireMediaAssets(plans.flatMap(p=>p.segments||[]),tmpDir);
+    const assets=selected.map(item=>{
+      const target=path.join(outDir,item.assetId+'.mp4');
       fs.copyFileSync(item.file,target);
-      assets.push({assetId:String(requiredAssetIds[i]),fileName:path.basename(item.file),path:target,durationSeconds:probe.duration,width:probe.width,height:probe.height,sizeBytes:probe.size,sourceType:sourceType,sourceUrl:item.sourceUrl});
-    }
-    fs.writeFileSync('phase7-source-manifest.json',JSON.stringify({schemaVersion:'2.0',complete:true,sourceType:sourceType,sourceUrl:sourceUrl,campaignId:String(phase6.campaign?.campaignId||''),assets,createdAt:new Date().toISOString()},null,2));
+      return {assetId:item.assetId,fileName:item.fileName,path:target,durationSeconds:item.probe.duration,
+        width:item.probe.width,height:item.probe.height,sizeBytes:item.probe.size,
+        sourceType:item.sourceType,sourceUrl:item.sourceUrl,contentSha256:item.contentSha256};
+    });
+    fs.writeFileSync('phase7-source-manifest.json',JSON.stringify({schemaVersion:'2.1',complete:true,
+      sourceType,sourceUrl,campaignId:String(phase6.campaign?.campaignId||''),assets,createdAt:new Date().toISOString()},null,2));
     console.log('PHASE7_SOURCE_VALIDATION_PASS');
     process.exit(0);
   }

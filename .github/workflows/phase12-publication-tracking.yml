@@ -13,6 +13,7 @@ on:
         type: choice
         options:
           - youtube
+          - instagram
           - youtube_instagram
         default: youtube_instagram
 
@@ -45,7 +46,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ inputs.platforms }}" != "youtube" && "${{ inputs.platforms }}" != "youtube_instagram" ]]; then
+          if [[ "${PHASE12_PLATFORMS}" != "youtube" && "${PHASE12_PLATFORMS}" != "instagram" && "${PHASE12_PLATFORMS}" != "youtube_instagram" ]]; then
             echo "Unsupported Phase 12 tracking platform selection."
             exit 1
           fi

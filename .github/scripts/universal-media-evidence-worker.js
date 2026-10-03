@@ -279,11 +279,14 @@ async function main(){
   const crypto=require('crypto');
   for(const v of verified){
     if(timeLeft()<=0)throw new Error('ADAPTER_TIME_BUDGET_EXCEEDED');
+    const hash=crypto.createHash('sha256');
+    for await(const chunk of fs.createReadStream(v.file))hash.update(chunk);
+    const contentSha256=hash.digest('hex');
     const assetId=v.sourceFileId?driveAssetId(v.sourceFileId):v.sourceType.toLowerCase()+'-'+crypto.createHash('sha256').update(v.identity).digest('hex').slice(0,16);
     const fr=frames(v.file,path.join('phase4-input',assetId,'frames'),v.probe.duration);
     results.push({assetId,fileName:v.fileName||path.basename(v.file),durationSeconds:v.probe.duration,
       width:v.probe.width,height:v.probe.height,fileSizeBytes:v.probe.size,frameCount:fr.length,frames:fr,
-      provenance:'normalized_source_real_media_ffprobe_extracted',sourceType:v.sourceType,
+      provenance:'normalized_source_real_media_ffprobe_extracted',sourceType:v.sourceType,contentSha256,
       sourceUrl:v.sourceUrl,sourceFileId:v.sourceFileId,parentSourceUrl:v.parentSourceUrl,
       relativePath:v.relativePath,sourceAdapter:v.sourceAdapter});
   }

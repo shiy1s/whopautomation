@@ -46,7 +46,14 @@ def publication_url(platform,remote):
     url=remote.get("permalink")
     if not url: die("Published Instagram record has no verified permalink")
     if not INSTAGRAM_RE.fullmatch(url): die("Instagram permalink is not a valid reel URL")
-    return url
+    return canonical_url(platform,url)
+
+def canonical_url(platform,url):
+    pattern=YOUTUBE_RE if platform=="youtube" else INSTAGRAM_RE if platform=="instagram" else None
+    match=pattern.fullmatch(str(url)) if pattern else None
+    if not match: die("Publication URL is not a supported exact post URL")
+    if platform=="youtube": return f"https://www.youtube.com/shorts/{match.group(1)}"
+    return f"https://www.instagram.com/reel/{match.group(1)}/"
 
 def validate_url(platform,url,remote):
     if platform=="youtube":
@@ -80,8 +87,13 @@ def main():
         url=publication_url(platform,p.get("remote",{})); validate_url(platform,url,p.get("remote",{}))
         # Renaming a clip or re-running a blocked/ambiguous job must never
         # create a second submission for the same published URL.
-        dup=any(x.get("campaignId")==CAMPAIGN_ID and x.get("platform")==platform and x.get("postUrl")==url for x in existing)
+        same_post=[x for x in existing if x.get("platform")==platform and x.get("postUrl") and canonical_url(platform,x["postUrl"])==url]
+        if any(x.get("campaignId")!=CAMPAIGN_ID for x in same_post):
+            die("Published URL is already bound to a different campaign; reconcile submission provenance")
+        dup=bool(same_post)
         if dup: skipped.append({"platform":platform,"clipFile":clip,"postUrl":url,"reason":"duplicate"}); continue
+        if platform=="youtube" and p.get("remote",{}).get("privacyStatus")!="public":
+            die("YouTube publication is not verified public; reconcile publication visibility before queueing")
         rec={"schemaVersion":2,"status":"queued","campaignId":CAMPAIGN_ID,"campaignName":CAMPAIGN_NAME,"campaignPlatforms":sorted(CAMPAIGN_PLATFORMS),"platform":platform,"clipFile":clip,"postUrl":url,"publishedAtUtc":p["publishedAtUtc"],"preparedAtUtc":now().strftime("%Y-%m-%dT%H:%M:%SZ"),"ageMinutesAtPreparation":round(age,2),"phase11RunId":int(RUN_ID),"videoSha256":p["videoSha256"],"remote":p.get("remote",{}),"contentRewardsSubmission":{"automation":"playwright-worker","status":"queued","reason":"Deterministic validation passed; authorized browser worker may submit this exact public URL."}}
         existing.append(rec); prepared.append(rec)
     state["schemaVersion"]=2; state["submissions"]=existing

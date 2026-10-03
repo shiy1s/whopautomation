@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import hashlib
 import json
+import math
+import re
 import shutil
 from pathlib import Path
 
@@ -39,6 +41,45 @@ if not RULES_PATH.is_file():
     raise RuntimeError(f"Missing persisted campaign rules: {RULES_PATH}")
 rules_doc = json.loads(RULES_PATH.read_text(encoding="utf-8"))
 campaign_rules = rules_doc.get("rules", {})
+video_rules = campaign_rules.get("video", {})
+minimum_duration = float(video_rules.get("minimumDurationSeconds") if video_rules.get("minimumDurationSeconds") is not None else 10)
+maximum_duration = float(video_rules.get("maximumDurationSeconds") if video_rules.get("maximumDurationSeconds") is not None else 60)
+if not math.isfinite(minimum_duration) or not math.isfinite(maximum_duration) or min(minimum_duration, maximum_duration) <= 0:
+    raise RuntimeError("Campaign duration limits must be finite positive seconds.")
+minimum_duration, maximum_duration = max(10, minimum_duration), min(60, maximum_duration)
+if minimum_duration > maximum_duration:
+    raise RuntimeError("Campaign duration limits conflict with the renderer bounds.")
+if p7.get("campaignId") and p7["campaignId"] != campaign_id:
+    raise RuntimeError("Phase 7 and Phase 9 campaign identities disagree.")
+platform_labels = {"youtubeShorts": "YouTube Shorts", "tiktok": "TikTok", "instagram": "Instagram"}
+platform_ids = {"youtubeShorts": "youtube", "tiktok": "tiktok", "instagram": "instagram"}
+approved_platforms = [key for key in platform_labels
+                      if campaign_rules.get("platforms", {}).get(key, {}).get("allowed") is True
+                      and not campaign_rules.get("platforms", {}).get(key, {}).get("forbidden")]
+caption_rules = campaign_rules.get("caption", {})
+required_hashtags = caption_rules.get("requiredHashtags", [])
+forbidden_hashtags = {str(tag).lower() for tag in caption_rules.get("forbiddenHashtags", [])}
+disclosure_rules = campaign_rules.get("disclosure", {})
+required_disclosure = disclosure_rules.get("selected") if disclosure_rules.get("required") else None
+if disclosure_rules.get("required") and not str(required_disclosure or "").strip():
+    raise RuntimeError("Campaign requires disclosure, but disclosure.selected is missing.")
+disclosure_placement = disclosure_rules.get("placement") or "first_separate_line"
+if required_disclosure and disclosure_placement not in ("first_separate_line", "first_hashtag_after_text"):
+    raise RuntimeError("Campaign disclosure placement needs explicit supported normalization.")
+review_reasons = []
+if campaign_rules.get("content", {}).get("creatorRequirements"):
+    review_reasons.append("Campaign creator eligibility/proof requirements need verified account evidence.")
+if campaign_rules.get("extraction", {}).get("unresolvedRequirements"):
+    review_reasons.extend(campaign_rules["extraction"]["unresolvedRequirements"])
+for needed, reason in [
+    (campaign_rules.get("originality", {}).get("originalEditRequired"), "Original editing and campaign relevance require review of the finished clip."),
+    (caption_rules.get("captionsRequired") or campaign_rules.get("video", {}).get("captionsRequired"), "Required timed captions need transcript-grounded text and visual review."),
+    (caption_rules.get("hookRequired") or campaign_rules.get("video", {}).get("hookRequired"), "Required hook needs evidence-based editorial review."),
+    (video_rules.get("englishOnly"), "Spoken language has not been verified by frame-based analysis."),
+    (campaign_rules.get("audio", {}).get("originalAudioMustRemainAudible"), "Audio presence does not establish intelligibility or original-content fidelity."),
+    (campaign_rules.get("content", {}).get("officialFootageOnly"), "Official source provenance does not establish every semantic campaign restriction."),
+]:
+    if needed: review_reasons.append(reason)
 if campaign_rules.get("audio", {}).get("originalAudioMustRemainAudible") and p7.get("originalAudioPreserved") is not True:
     raise RuntimeError("Required Phase 7 audio gate is not satisfied.")
 branding_required = bool(campaign_rules.get("branding", {}).get("logoRequired") or campaign_rules.get("onScreenText", {}).get("required"))
@@ -64,7 +105,7 @@ if sorted(plan_by_clip_number) != list(range(1, len(plans) + 1)):
 for clip_number, plan in plan_by_clip_number.items():
     if not plan.get("planId") or not isinstance(plan.get("segments"), list) or not plan["segments"]:
         raise RuntimeError(f"Phase 7 plan {clip_number} lacks required segment provenance.")
-    if not 10.0 <= float(plan["durationSeconds"]) <= 60.0:
+    if not minimum_duration <= float(plan["durationSeconds"]) <= maximum_duration:
         raise RuntimeError(f"Phase 7 plan {plan['planId']} has invalid duration.")
     for seg in plan["segments"]:
         for field in ("assetId", "fileName", "startSeconds", "endSeconds"):
@@ -101,7 +142,7 @@ for item in sorted(p9["clips"], key=lambda x: x["clipNumber"]):
         raise RuntimeError(f"{filename}: Phase 9 duration disagrees with Phase 7 QA.")
     if abs(duration - plan_duration) > 0.25:
         raise RuntimeError(f"{filename}: Phase 9 duration disagrees with Phase 6/7 plan.")
-    if not (10.0 <= duration <= 60.0):
+    if not (minimum_duration <= duration <= maximum_duration):
         raise RuntimeError(f"{filename}: duration outside publishing bounds.")
     if int(q["width"]) != 1080 or int(q["height"]) != 1920:
         raise RuntimeError(f"{filename}: not 1080x1920.")
@@ -114,13 +155,27 @@ for item in sorted(p9["clips"], key=lambda x: x["clipNumber"]):
         obj = item[platform]
         text = obj.get("description", obj.get("caption", ""))
         disclosure = obj.get("ftcDisclosure")
-        if disclosure and not text.startswith(str(disclosure) + "\n"):
+        if required_disclosure and disclosure != required_disclosure:
+            raise RuntimeError(f"{filename}: required campaign disclosure missing for {platform}.")
+        placement = obj.get("disclosurePlacement") or "first_separate_line"
+        if required_disclosure and placement != disclosure_placement:
+            raise RuntimeError(f"{filename}: disclosure placement disagrees with campaign rules for {platform}.")
+        if disclosure and placement == "first_separate_line" and not text.startswith(str(disclosure) + "\n"):
             raise RuntimeError(f"{filename}: required disclosure is not first separate line for {platform}.")
-        required_tag = obj.get("requiredAccountTag")
+        if disclosure and placement == "first_hashtag_after_text" and (not re.findall(r"#[A-Za-z0-9_]+", text) or re.findall(r"#[A-Za-z0-9_]+", text)[0] != disclosure):
+            raise RuntimeError(f"{filename}: disclosure is not the first hashtag for {platform}.")
+        required_tag = campaign_rules.get("platforms", {}).get(platform, {}).get("accountTag") or obj.get("requiredAccountTag")
         if required_tag and str(required_tag) not in text:
             raise RuntimeError(f"{filename}: required account tag missing for {platform}.")
-        if len(obj.get("hashtags", [])) > 3:
-            raise RuntimeError(f"{filename}: Phase 9 hashtag contract exceeded for {platform}.")
+        text_hashtags = re.findall(r"#[A-Za-z0-9_]+", text)
+        if any(tag.lower() in forbidden_hashtags for tag in text_hashtags):
+            raise RuntimeError(f"{filename}: forbidden hashtag present for {platform}.")
+        required_order = [tag for tag in text_hashtags if tag in required_hashtags]
+        if required_order != required_hashtags:
+            raise RuntimeError(f"{filename}: required hashtags missing or out of order for {platform}.")
+        context = str(caption_rules.get("contextText") or "").strip()
+        if caption_rules.get("mustGiveContext") and (not context or context not in text):
+            raise RuntimeError(f"{filename}: required factual caption context missing for {platform}.")
 
     shutil.copy2(source, OUT / "videos" / filename)
 
@@ -131,7 +186,7 @@ for item in sorted(p9["clips"], key=lambda x: x["clipNumber"]):
 
     clip_dir = OUT / "platform" / Path(filename).stem
     clip_dir.mkdir()
-    for platform in ("youtubeShorts", "tiktok", "instagram"):
+    for platform in approved_platforms:
         (clip_dir / f"{platform}.json").write_text(
             json.dumps(item[platform], indent=2, ensure_ascii=False),
             encoding="utf-8",
@@ -151,7 +206,7 @@ for item in sorted(p9["clips"], key=lambda x: x["clipNumber"]):
             "confidence": plan.get("confidence"),
         },
         "phase7Quality": q,
-        "platforms": ["youtubeShorts", "tiktok", "instagram"],
+        "platforms": approved_platforms,
         "metadataFile": f"metadata/{Path(filename).stem}.json",
     })
 
@@ -171,7 +226,13 @@ manifest = {
     "campaignId": p9["campaignId"],
     "campaignName": p9["campaignName"],
     "publishingPolicy": {
-        "platforms": ["YouTube Shorts", "TikTok", "Instagram"],
+        "platforms": [platform_labels[key] for key in approved_platforms],
+        "approvedPlatforms": [platform_ids[key] for key in approved_platforms],
+        "creativeReviewRequired": bool(review_reasons),
+        "campaignRequirementsVerified": False if review_reasons else True,
+        "campaignRequirementReview": {"status": "required" if review_reasons else "not_required", "reasons": review_reasons},
+        "minimumDurationSeconds": minimum_duration,
+        "maximumDurationSeconds": maximum_duration,
         "postLiveMinimumDays": campaign_rules.get("publishing", {}).get("postLiveMinimumDays") or campaign_rules.get("publishing", {}).get("liveDurationDays"),
         "visibleLikesRequired": campaign_rules.get("publishing", {}).get("visibleLikesRequired"),
         "paidBoostingForbidden": campaign_rules.get("publishing", {}).get("paidBoostingForbidden"),
