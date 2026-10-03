@@ -67,6 +67,8 @@ disclosure_placement = disclosure_rules.get("placement") or "first_separate_line
 if required_disclosure and disclosure_placement not in ("first_separate_line", "first_hashtag_after_text"):
     raise RuntimeError("Campaign disclosure placement needs explicit supported normalization.")
 review_reasons = []
+if campaign_rules.get('publishing', {}).get('testOnly'):
+    review_reasons.append('Campaign is explicitly restricted to TEST/non-publishing mode.')
 if campaign_rules.get("content", {}).get("creatorRequirements"):
     review_reasons.append("Campaign creator eligibility/proof requirements need verified account evidence.")
 if campaign_rules.get("extraction", {}).get("unresolvedRequirements"):
