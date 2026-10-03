@@ -28,3 +28,6 @@ class CampaignRequirements(unittest.TestCase):
   self.assertEqual(r['youtubeShorts']['hashtags'],['#One','#Two','#Three','#Four'])
  def test_conflicting_hashtag_rules_fail_closed(self):
   with self.assertRaises(RuntimeError):self.generate({'caption':{'requiredHashtags':['#One'],'forbiddenHashtags':['#one']}})
+ def test_disclosure_can_precede_other_required_hashtags(self):
+  r=self.generate({'caption':{'requiredHashtags':['#One','#Two']},'disclosure':{'required':True,'selected':'#Ad','placement':'first_hashtag_after_text'}})
+  self.assertEqual(r['youtubeShorts']['hashtags'],['#Ad','#One','#Two'])

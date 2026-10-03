@@ -65,8 +65,6 @@ if any(x.lower() in forbidden_tags for x in HASHTAGS) or (disclosure and disclos
 # Do not infer hashtags from arbitrary brief text: it can contain forbidden
 # examples, optional tags, source snippets, or disclosure tokens.
 if disclosure_placement=="first_hashtag_after_text" and disclosure:
-    if HASHTAGS and HASHTAGS[0].lower()!=disclosure.lower():
-        raise RuntimeError("Disclosure placement conflicts with required hashtag order.")
     HASHTAGS=[disclosure]+[x for x in HASHTAGS if x.lower()!=disclosure.lower()]
 approved_platforms=[p for p in ("youtubeShorts","tiktok","instagram")
                     if platforms.get(p,{}).get("allowed") is True and not platforms.get(p,{}).get("forbidden")]
