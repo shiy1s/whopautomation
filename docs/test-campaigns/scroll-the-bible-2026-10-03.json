@@ -1,0 +1,78 @@
+{
+  "schemaVersion": "1.0",
+  "purpose": "Prepared next manual Phase 4A TEST; assessment and runner input, not persisted production campaign rules",
+  "preparedAt": "2026-10-03",
+  "executionMode": "TEST",
+  "publishingAllowed": false,
+  "submissionAllowed": false,
+  "executed": false,
+  "campaign": {
+    "id": "281ed1b9-6d32-4c10-b46f-6becf467703d",
+    "name": "Scroll The Bible Clipping | $9K Budget | $1.00 CPM",
+    "url": "https://contentrewards.com/discover/281ed1b9-6d32-4c10-b46f-6becf467703d",
+    "observedStatus": "active",
+    "observedRemainingBudgetUSD": 3713.14,
+    "applicationRequired": false,
+    "private": false,
+    "officialBrief": "https://docs.google.com/document/d/1PJvQjaaODB5A0EmU6KgvkA-l-sRe3TBOww77QJmEYFk/edit",
+    "officialContentStrategy": "https://docs.google.com/document/d/1P83QjalpCN1EvuggKKBN4jEh0qN3_y4SCTtQquP1jec/edit"
+  },
+  "eligibilityAssessment": {
+    "newAccountsExplicitlyAllowed": true,
+    "basis": "Official brief, section 2 Account Creation, Step 1 expressly instructs creation of brand new TikTok, Instagram and YouTube accounts.",
+    "historicalAudienceDemographicEvidenceRequiredByReviewedDocuments": false,
+    "minimumFollowerCountSpecified": false,
+    "dedicatedCampaignAccountRequired": true,
+    "accountSetupVerified": false,
+    "accountSetupRequirements": [
+      "Dedicated Scroll The Bible page, Christianity-centered name, profile picture and prescribed app bio/link",
+      "24-48 hour account warm-up before first upload, as specified by the campaign",
+      "Daily story requirement"
+    ],
+    "audienceRequirement": "At least 50% USA, CA, AU, UK and NZ audience; future real audience compliance remains required.",
+    "audienceEvidenceStatus": "unavailable_not_established",
+    "audienceComplianceVerified": false,
+    "historicalEvidenceCaveat": "No historical demographic screenshot/proof prerequisite appears in the two reviewed briefs or public campaign creator requirements. This does not waive future audience verification or prove payout eligibility.",
+    "testEligibility": "Official media acquisition/evidence inspection only; requires no account, publication, engagement or demographic claim."
+  },
+  "source": {
+    "type": "GoogleDriveFile",
+    "workerNormalizedType": "GoogleDrive",
+    "sourceKind": "file",
+    "fileId": "1LaujoViPQ_ac0sdBqhv_DbvOJqDmhoyv",
+    "fileName": "cbc482865c5c4cafabd05cce58934e87.mov",
+    "mimeType": "video/quicktime",
+    "listedSizeBytes": 41249945,
+    "url": "https://drive.google.com/file/d/1LaujoViPQ_ac0sdBqhv_DbvOJqDmhoyv/view",
+    "officialRootFolder": "https://drive.google.com/drive/folders/15Ob_DQNHSBxPMM4GuUeTO_losAsQcVL2",
+    "provenancePath": [
+      "Official Content Strategy > Clipping folder hyperlink",
+      "Scroll The Bible Clipping Folder > Speaker Clips (1NBh8fsyw2J_oyi_9fRQu31-BnltjnqhO)",
+      "Audrey's Videos (15IxWAzVqD7gI9mi9uhNH5TVepxLKZPcl) > exact selected file"
+    ],
+    "inspectedLeafFolderEntryCount": 17,
+    "selectionReason": "Small official MOV video with exact Drive identity; no root-folder traversal, tutorial footage, template image or duplicate-name selection.",
+    "downloadAndProbeVerified": false,
+    "broadFallbackAllowed": false
+  },
+  "runnerInput": {
+    "workflowFile": "universal-media-evidence-v2.yml",
+    "phaseName": "Phase 4A — Scroll The Bible bounded TEST",
+    "inputs": {
+      "source_type": "GoogleDriveFile",
+      "source_url": "https://drive.google.com/file/d/1LaujoViPQ_ac0sdBqhv_DbvOJqDmhoyv/view",
+      "source_urls": "[]",
+      "campaign_id": "281ed1b9-6d32-4c10-b46f-6becf467703d",
+      "max_assets": "1"
+    }
+  },
+  "downstreamRequirementsBeforeAnyPublishing": [
+    "Use a provided hook/template; do not invent hooks; fit the speaker clip into the template's blank area",
+    "Preserve the spoken app CTA and at least 10 seconds of video",
+    "Only Instagram, TikTok and YouTube; campaign dedicated account setup must be verified",
+    "Caption must tag Scroll The Bible and include the required download CTA; no required hashtags",
+    "Required app comment must be posted and pinned; app CTA/link in bio and daily story rules apply",
+    "No AI clips or phonk music; no botting; at least 1% likes-to-views engagement and required real audience mix",
+    "Review the official tutorial, finished creative and platform restrictions; do not mark any of these as passed by this preparation"
+  ]
+}
