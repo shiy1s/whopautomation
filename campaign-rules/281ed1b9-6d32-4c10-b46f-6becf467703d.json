@@ -21,7 +21,7 @@
     "accountEligibility": {"newAccountsExplicitlyAllowed": true, "accountSetupVerified": false, "audienceEvidenceStatus": "unavailable_not_established", "audienceComplianceVerified": false},
     "platforms": {
       "youtubeShorts": {"allowed": true, "forbidden": false, "accountTag": "@scrollthebibleapp"},
-      "instagram": {"allowed": false, "forbidden": false, "accountTag": "@scrollthebibleapp", "eligibilityStatus": "unresolved_current_listing_only_rewards_youtube_and_tiktok", "evidenceUrl": "https://contentrewards.com/discover/281ed1b9-6d32-4c10-b46f-6becf467703d"},
+      "instagram": {"allowed": false, "forbidden": true, "accountTag": "@scrollthebibleapp", "eligibilityStatus": "not_available_per_user_confirmation_2026-10-06", "evidenceUrl": "https://contentrewards.com/discover/281ed1b9-6d32-4c10-b46f-6becf467703d", "provenance": "User confirmed this campaign does not have Instagram on 2026-10-06. Phase 9 must never select Instagram for this campaign."},
       "tiktok": {"allowed": true, "forbidden": false, "accountTag": "@scrollthebibleapp"}
     },
     "caption": {

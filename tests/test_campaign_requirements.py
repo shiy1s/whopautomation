@@ -26,6 +26,12 @@ class CampaignRequirements(unittest.TestCase):
   self.assertEqual(r['approvedPlatforms'],['youtubeShorts'])
   self.assertNotIn('#Bad',r['youtubeShorts']['description']);self.assertNotIn('#Example',r['youtubeShorts']['description'])
   self.assertEqual(r['youtubeShorts']['hashtags'],['#One','#Two','#Three','#Four'])
+ def test_scroll_campaign_never_selects_instagram(self):
+  rules=json.loads((Path(__file__).resolve().parents[1]/'campaign-rules/281ed1b9-6d32-4c10-b46f-6becf467703d.json').read_text())['rules']
+  self.assertFalse(rules['platforms']['instagram']['allowed'])
+  self.assertTrue(rules['platforms']['instagram']['forbidden'])
+  r=self.generate({'platforms':rules['platforms']})
+  self.assertEqual(r['approvedPlatforms'],['youtubeShorts','tiktok'])
  def test_conflicting_hashtag_rules_fail_closed(self):
   with self.assertRaises(RuntimeError):self.generate({'caption':{'requiredHashtags':['#One'],'forbiddenHashtags':['#one']}})
  def test_disclosure_can_precede_other_required_hashtags(self):
