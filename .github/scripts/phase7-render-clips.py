@@ -1,4 +1,5 @@
 import json, os, subprocess
+from campaign_template import template_filters, verify_template_file
 
 with open("clips.json", encoding="utf-8") as f:
     data = json.load(f)
@@ -10,6 +11,14 @@ logo = render_config.get("logoFile")
 logo_required = bool(render_config.get("logoRequired", False))
 text_required = bool(render_config.get("onScreenTextRequired", False))
 require_audio = bool(render_config.get("originalAudioMustRemainAudible", False))
+template = render_config.get('template')
+if render_config.get('templateRequired') and not template:
+    raise RuntimeError('CAMPAIGN_TEMPLATE_REQUIRED_BUT_NOT_PROVISIONED')
+if template:
+    verify_template_file(template['file'],template)
+    dimensions=json.loads(subprocess.check_output(['ffprobe','-v','error','-select_streams','v:0','-show_entries','stream=width,height','-of','json',template['file']]))['streams'][0]
+    if (dimensions['width'],dimensions['height']) != (template['width'],template['height']):
+        raise RuntimeError('CAMPAIGN_TEMPLATE_DIMENSIONS_MISMATCH')
 if logo_required and (not logo or not os.path.isfile(logo)):
     raise RuntimeError("Required campaign logo is not provisioned in this render job.")
 
@@ -147,10 +156,12 @@ for clip in data["clips"]:
         "[fg]scale=1080:608:force_original_aspect_ratio=decrease,pad=1080:608:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30[fg0]",
         "[bg1][fg0]overlay=0:656[base]",
     ]
+    if template:
+        parts = template_filters(template)
     cur = "[base]"
     if logo_required:
         parts += [
-            "[1:v]scale=220:-1[logo]",
+            f"[{2 if template else 1}:v]scale=220:-1[logo]",
             "[base][logo]overlay=(W-w)/2:115[branded]",
         ]
         cur = "[branded]"
@@ -165,7 +176,7 @@ for clip in data["clips"]:
         cur = "[v0]"
 
     for j, (a, b, text) in enumerate(clean, 1):
-        path = os.path.abspath(f"caption_files/clip_{idx:02d}_{j:03d}.txt").replace("\\", "/")
+        path = f"caption_files/clip_{idx:02d}_{j:03d}.txt"
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)
         nxt = f"[vc{j}]"
@@ -175,6 +186,8 @@ for clip in data["clips"]:
 
     final = f"output/clip_{idx:02d}.mp4"
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-y", "-i", assembled]
+    if template:
+        cmd += ['-loop','1','-i',template['file']]
     if logo_required:
         cmd += ["-loop", "1", "-i", logo]
     cmd += ["-filter_complex", ";".join(parts), "-map", "[outv]"]

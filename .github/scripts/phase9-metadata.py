@@ -80,6 +80,8 @@ def body_text(index, platform):
     if account_tags[platform]: parts.append(str(account_tags[platform]))
     parts.append(campaign_name)
     if campaign_text: parts.append(campaign_text)
+    required_cta=str(caption.get('requiredCallToAction') or '').strip()
+    if required_cta: parts.append(required_cta)
     final_tags=[tag for tag in HASHTAGS if not (disclosure and disclosure_placement=="first_separate_line" and tag.lower()==disclosure.lower())]
     if final_tags: parts.append(" ".join(final_tags))
     return "\n".join(parts)

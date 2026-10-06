@@ -31,3 +31,7 @@ class CampaignRequirements(unittest.TestCase):
  def test_disclosure_can_precede_other_required_hashtags(self):
   r=self.generate({'caption':{'requiredHashtags':['#One','#Two']},'disclosure':{'required':True,'selected':'#Ad','placement':'first_hashtag_after_text'}})
   self.assertEqual(r['youtubeShorts']['hashtags'],['#Ad','#One','#Two'])
+ def test_required_cta_is_preserved_for_every_platform(self):
+  r=self.generate({'caption':{'requiredCallToAction':'Install the official app.'}})
+  self.assertIn('Install the official app.',r['youtubeShorts']['description'])
+  for p in ['instagram','tiktok']:self.assertIn('Install the official app.',r[p]['caption'])

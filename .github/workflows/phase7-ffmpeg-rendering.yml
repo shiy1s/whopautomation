@@ -255,6 +255,8 @@ jobs:
               "plans":phase6["clipPlans"],
               "qualityReport":qa,
               "renderDirectives":phase6.get("renderDirectives",{}),
+              "campaignTemplateApplied":bool(phase6.get("renderDirectives",{}).get("renderAssets",{}).get("template")),
+              "campaignTemplateSha256":phase6.get("renderDirectives",{}).get("renderAssets",{}).get("template",{}).get("sha256"),
               "originalAudioPreserved":bool(phase6.get("renderDirectives",{}).get("originalAudioMustRemainAudible",False)),
               "campaignBrandingApplied":bool(phase6.get("renderDirectives",{}).get("logoRequired",False) or phase6.get("renderDirectives",{}).get("onScreenTextRequired",False)),
           }
@@ -277,5 +279,6 @@ jobs:
             phase7-render-manifest.json
             phase7-source-manifest.json
             quality_report.json
+            render-assets/*.png
           if-no-files-found: error
           retention-days: 30

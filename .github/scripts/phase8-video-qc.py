@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from campaign_template import verify_template_file, template_similarity
 
 MIN_DURATION = 10.0
 MAX_DURATION = 60.0
@@ -50,6 +51,16 @@ if not math.isfinite(minimum_duration) or not math.isfinite(maximum_duration) or
     raise RuntimeError("Invalid campaign/renderer duration limits.")
 require_audio = bool(campaign_rules.get("audio", {}).get("originalAudioMustRemainAudible", False))
 branding_required = bool(logo_required or text_required)
+template_required = bool(campaign_rules.get('branding', {}).get('providedTemplateRequired'))
+template_spec = campaign_rules.get('renderAssets', {}).get('template')
+template_reference = None
+if template_required:
+    if not template_spec or phase7.get('campaignTemplateApplied') is not True or phase7.get('campaignTemplateSha256') != template_spec.get('sha256'):
+        raise RuntimeError('CAMPAIGN_TEMPLATE_PROVENANCE_MISMATCH')
+    template_path=QA_DIR/'render-assets'/(template_spec['sha256']+'.png')
+    verify_template_file(template_path,template_spec)
+    from PIL import Image
+    template_reference=Image.open(template_path)
 if bool(phase7.get("originalAudioPreserved", False)) != require_audio:
     raise RuntimeError("Phase 7 audio provenance does not match persisted campaign rules.")
 if bool(phase7.get("campaignBrandingApplied", False)) != branding_required:
@@ -199,6 +210,7 @@ for video in videos:
         "decodeComplete": False,
         "logoSampledVisible": (not logo_required),
         "requiredTextSampledVisible": (not text_required),
+        "campaignTemplateSampledMatch": (not template_required),
     }
 
     decode = run([
@@ -234,6 +246,10 @@ for video in videos:
     evidence_indices = {0, len(frame_paths) // 2, len(frame_paths) - 1}
     min_logo = None
     min_text = None
+    min_template = None
+    if template_required:
+        min_template=min(template_similarity(template_reference,Image.open(fp),template_spec) for fp in frame_paths)
+        checks['campaignTemplateSampledMatch']=min_template >= 0.92
     if logo_required or text_required:
         reference = Image.open(frame_paths[0])
         logo_coverages = []
@@ -281,6 +297,7 @@ for video in videos:
             "intervalSeconds": SAMPLE_INTERVAL,
             "minimumLogoCoverage": round(min_logo, 4) if min_logo is not None else None,
             "minimumRequiredTextCoverage": round(min_text, 4) if min_text is not None else None,
+            "minimumTemplateSimilarity": round(min_template, 4) if min_template is not None else None,
             "threshold": OVERLAY_THRESHOLD,
             "evidenceFramesRetained": len(evidence_indices),
         },
