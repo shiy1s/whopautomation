@@ -44,7 +44,7 @@
         "sha256": "6e504600c073d4e28a12e9f8b00d6abadbb3e8454b2350b092e35ac6e78cce46",
         "width": 1080, "height": 1920,
         "videoRect": {"x": 0, "y": 536, "width": 1080, "height": 1080},
-        "fit": "cover",
+        "fit": "contain",
         "cropX": 0.5, "cropY": 0.2,
         "provenance": "Official content strategy clipping folder > Twitter Handles & Hooks > Concept Reveal Hooks > #1.png"
       }
