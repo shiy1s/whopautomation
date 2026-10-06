@@ -6,7 +6,7 @@ from pathlib import Path
 
 from google import genai
 from google.genai import types
-from phase4b_audio import load_audio, normalize_transcript
+from phase4b_audio import load_audio, transcribe_with_retry, TRANSCRIPT_SCHEMA
 
 
 MODELS = [
@@ -276,8 +276,9 @@ def main():
         speech = None
         if audio is not None:
             # Separate audio request: visual frame descriptions remain image-grounded.
-            response = client.models.generate_content(
-                model=result['model'],
+            def request_transcript(model):
+                return client.models.generate_content(
+                model=model,
                 contents=[
                     'Transcribe only clearly audible speech from this real source audio. '
                     'Return JSON {"language":"English or detected language","segments":'
@@ -286,11 +287,11 @@ def main():
                     'Do not invent speech for music or silence. Do not paraphrase. '
                     f'Audio duration is {asset["durationSeconds"]} seconds. Preserve spoken calls to action.',
                     types.Part.from_bytes(data=audio, mime_type='audio/mpeg')],
-                config=types.GenerateContentConfig(response_mime_type='application/json'))
-            speech = normalize_transcript(json.loads(response.text), float(asset['durationSeconds']))
-            speech.update({'model': result['model'], 'audioSha256': asset['audioEvidence']['sha256'],
+                config=types.GenerateContentConfig(response_mime_type='application/json', response_schema=TRANSCRIPT_SCHEMA)).text
+            speech = transcribe_with_retry(request_transcript, [result['model'], *MODELS], float(asset['durationSeconds']))
+            speech.update({'audioSha256': asset['audioEvidence']['sha256'],
                            'sourceContentSha256': asset['contentSha256']})
-        if campaign_rules.get('rules', {}).get('audio', {}).get('speechEvidenceRequired') and not speech:
+        if campaign_rules.get('rules', {}).get('audio', {}).get('speechEvidenceRequired') and not (speech and speech['segments']):
             raise RuntimeError('CAMPAIGN_SPEECH_EVIDENCE_REQUIRED: regenerate bounded Phase 4A audio evidence.')
         asset_output = {
             "assetId": asset["assetId"],

@@ -206,6 +206,7 @@ def main():
         "renderDirectives": {
             "originalAudioMustRemainAudible": bool(campaign_rules.get("audio", {}).get("originalAudioMustRemainAudible", False)),
             "logoRequired": bool(campaign_rules.get("branding", {}).get("logoRequired", False)),
+            "templateRequired": bool(campaign_rules.get("branding", {}).get("providedTemplateRequired", False)),
             "onScreenTextRequired": bool(campaign_rules.get("onScreenText", {}).get("required", False)),
             "onScreenTextOptions": list(campaign_rules.get("onScreenText", {}).get("requiredLines", []) or []),
             "renderAssets": dict(campaign_rules.get("renderAssets", {}) or {}),

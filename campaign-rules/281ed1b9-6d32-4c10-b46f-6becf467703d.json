@@ -3,7 +3,7 @@
   "campaignId": "281ed1b9-6d32-4c10-b46f-6becf467703d",
   "campaignName": "Scroll The Bible",
   "sourceDocumentUrl": "https://docs.google.com/document/d/1PJvQjaaODB5A0EmU6KgvkA-l-sRe3TBOww77QJmEYFk/edit",
-  "reviewedAt": "2026-10-03",
+  "reviewedAt": "2026-10-06",
   "reviewScope": "Manual extraction from both complete official briefs; TEST only. No account or audience compliance asserted.",
   "rules": {
     "source": "reviewed_official_campaign_documents",
@@ -21,7 +21,7 @@
     "accountEligibility": {"newAccountsExplicitlyAllowed": true, "accountSetupVerified": false, "audienceEvidenceStatus": "unavailable_not_established", "audienceComplianceVerified": false},
     "platforms": {
       "youtubeShorts": {"allowed": true, "forbidden": false, "accountTag": "@scrollthebibleapp"},
-      "instagram": {"allowed": true, "forbidden": false, "accountTag": "@scrollthebibleapp"},
+      "instagram": {"allowed": false, "forbidden": false, "accountTag": "@scrollthebibleapp", "eligibilityStatus": "unresolved_current_listing_only_rewards_youtube_and_tiktok", "evidenceUrl": "https://contentrewards.com/discover/281ed1b9-6d32-4c10-b46f-6becf467703d"},
       "tiktok": {"allowed": true, "forbidden": false, "accountTag": "@scrollthebibleapp"}
     },
     "caption": {
@@ -45,7 +45,7 @@
         "width": 1080, "height": 1920,
         "videoRect": {"x": 0, "y": 536, "width": 1080, "height": 1080},
         "fit": "cover",
-        "cropX": 0.5, "cropY": 0.5,
+        "cropX": 0.5, "cropY": 0.2,
         "provenance": "Official content strategy clipping folder > Twitter Handles & Hooks > Concept Reveal Hooks > #1.png"
       }
     },

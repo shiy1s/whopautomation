@@ -2,6 +2,7 @@ import json
 import math
 import shutil
 from pathlib import Path
+from campaign_template import acquire_template
 
 MIN_DURATION = 10.0
 MAX_DURATION = 60.0
@@ -21,6 +22,10 @@ text_required = bool(directives.get("onScreenTextRequired", False))
 text_options = [str(x).strip() for x in directives.get("onScreenTextOptions", []) if str(x).strip()]
 # Campaign-provided render assets must be explicitly identified by Phase 3 rules.
 render_assets = directives.get("renderAssets", {}) if isinstance(directives.get("renderAssets", {}), dict) else {}
+template_spec = render_assets.get('template')
+if directives.get('templateRequired') and not template_spec:
+    raise RuntimeError('CAMPAIGN_TEMPLATE_REQUIRED_BUT_NOT_PROVISIONED')
+template_path = acquire_template(template_spec) if template_spec else None
 logo_path = str(render_assets.get("logoPath") or "").strip()
 text_path = str(render_assets.get("onScreenTextPath") or "").strip()
 logo = Path(logo_path) if logo_path else None
@@ -101,10 +106,14 @@ for rank, p in enumerate(plans, 1):
     }
     if logo_required:
         (job / logo.name).write_bytes(logo.read_bytes())
+    if template_path:
+        shutil.copy2(template_path,job/'campaign-template.png')
     if text_required:
         (job / "campaign_text.txt").write_text(text_options[0], encoding="utf-8")
     (job / "render-config.json").write_text(json.dumps({
         "logoRequired": logo_required,
+        "templateRequired": bool(directives.get('templateRequired')),
+        "template": {**template_spec, 'file': 'campaign-template.png'} if template_spec else None,
         "onScreenTextRequired": text_required,
         "onScreenText": text_options[0] if text_required else "",
         "originalAudioMustRemainAudible": bool(directives.get("originalAudioMustRemainAudible", False)),

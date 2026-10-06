@@ -87,6 +87,10 @@ if campaign_rules.get("audio", {}).get("originalAudioMustRemainAudible") and p7.
 branding_required = bool(campaign_rules.get("branding", {}).get("logoRequired") or campaign_rules.get("onScreenText", {}).get("required"))
 if branding_required and p7.get("campaignBrandingApplied") is not True:
     raise RuntimeError("Required Phase 7 branding gate is not satisfied.")
+if campaign_rules.get('branding', {}).get('providedTemplateRequired'):
+    template_spec=campaign_rules.get('renderAssets', {}).get('template') or {}
+    if p7.get('campaignTemplateApplied') is not True or not template_spec.get('sha256') or p7.get('campaignTemplateSha256') != template_spec['sha256']:
+        raise RuntimeError('Required campaign template provenance is missing or mismatched.')
 
 if not VIDEOS.is_dir():
     raise RuntimeError("Phase 7 clip artifact directory is missing.")
@@ -156,6 +160,9 @@ for item in sorted(p9["clips"], key=lambda x: x["clipNumber"]):
     for platform in ("youtubeShorts", "tiktok", "instagram"):
         obj = item[platform]
         text = obj.get("description", obj.get("caption", ""))
+        required_cta = str(caption_rules.get('requiredCallToAction') or '').strip()
+        if required_cta and required_cta not in text:
+            raise RuntimeError(f'{filename}: required campaign call to action missing for {platform}.')
         disclosure = obj.get("ftcDisclosure")
         if required_disclosure and disclosure != required_disclosure:
             raise RuntimeError(f"{filename}: required campaign disclosure missing for {platform}.")
