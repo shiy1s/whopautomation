@@ -4,7 +4,7 @@ This is a buildless static site for the Google OAuth homepage, privacy policy, a
 
 ## Deploy with Vercel
 
-From the repository root, choose `source/oauth-site` as the Vercel project root. The site needs no build command and no environment variables. Vercel will serve:
+From the repository root, choose `oauth-site` as the Vercel project root. The site needs no build command and no environment variables. Vercel will serve:
 
 - `/` — public application homepage
 - `/privacy` — privacy policy
